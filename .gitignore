@@ -1,0 +1,44 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Build & release artifacts
+build/
+dist/
+released/
+ITRPASuite/
+_internal/
+*.egg-info/
+*.exe
+
+# Runtime local data, logs & DPAPI credentials
+data/
+*.db
+*.db-journal
+*.db-wal
+*.dat
+*.log
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak

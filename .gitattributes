@@ -1,0 +1,37 @@
+# Default text files use LF for cross-platform consistency
+* text=auto eol=lf
+
+# Python, config, docs, and web assets
+*.py text eol=lf
+*.pyi text eol=lf
+*.spec text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.cfg text eol=lf
+*.ini text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.editorconfig text eol=lf
+.python-version text eol=lf
+.env.example text eol=lf
+
+# Windows scripts must keep CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary image & icon assets
+*.png binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.bmp binary
+
+# Generated lockfile
+uv.lock text eol=lf linguist-generated=true
