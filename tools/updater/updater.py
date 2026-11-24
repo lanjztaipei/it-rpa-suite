@@ -1,0 +1,515 @@
+"""Three-stage self-updating state machine with Zip Slip protection and atomic version tracking.
+
+State Machine Stages (`UpdateStage`):
+1. `NEEDED` (`prepare_update`):
+   Running from `_internal/`, detects a newer update package in `./released/ITRPASuite.zip`
+   (or missing `data/version.txt`). Copies itself to `app_root` (safe zone), launches the safe copy,
+   and raises `UpdateHandoff`.
+2. `STARTED` (`install_update`):
+   Running from `app_root` (safe zone), copies the update ZIP locally, removes the old `_internal/`
+   directory and `ITRPASuite.exe`, safely extracts the ZIP (blocking Zip Slip traversal),
+   atomically writes `data/updating_version.txt`, launches the newly extracted `_internal/updater`,
+   and raises `UpdateHandoff`.
+3. `IN_PROGRESS` (`finalize_update`):
+   Running from the new `_internal/`, validates `data/updating_version.txt`, atomically writes
+   `data/version.txt`, removes `data/updating_version.txt` and the safe-zone updater copy, and
+   synchronizes `_internal/tools/tool_sdk.py` to `tools/tool_sdk.py`.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import shutil
+import subprocess
+import sys
+import time
+import zipfile
+from collections.abc import Callable
+from dataclasses import dataclass
+from enum import Enum, auto
+from pathlib import Path
+from typing import TypeVar
+
+LOGGER = logging.getLogger("updater")
+T = TypeVar("T")
+
+# =====================================================================
+# 更新來源設定 (Update Source Configuration)
+# ---------------------------------------------------------------------
+# 若未來需要更改更新壓縮檔位置，可選擇以下任一方式（由高至低優先順序）：
+# 1. 命令列參數：`updater.exe --source-zip "路徑"` 或環境變數 `IT_SUITE_UPDATE_ZIP`
+# 2. 設定檔覆寫：於 `data/settings.json` 設定 `"update_source_zip": "路徑"`（免重新打包 EXE）
+# 3. 預設常數：直接修改下方 `DEFAULT_RELEASE_RELATIVE_PATH`
+#
+# 預設標準：統一指向專案根目錄下的 `released/ITRPASuite.zip`
+# =====================================================================
+DEFAULT_RELEASE_RELATIVE_PATH = Path("released") / "ITRPASuite.zip"
+APP_FOLDER_NAME = "ITRPASuite"
+MAIN_EXECUTABLE_NAME = "ITRPASuite.exe"
+
+
+class UpdateStage(Enum):
+    """Current phase of the three-stage self-update state machine."""
+
+    NOT_NEEDED = auto()
+    NEEDED = auto()
+    STARTED = auto()
+    IN_PROGRESS = auto()
+
+
+class UpdateError(RuntimeError):
+    """Expected or recoverable error during the update workflow."""
+
+
+class UpdateHandoff(Exception):
+    """Signal that update execution has been handed off to another updater process."""
+
+
+@dataclass(frozen=True)
+class UpdatePaths:
+    """Centralized path layout for the three-stage self-update state machine."""
+
+    source_zip: Path
+    executable: Path
+    app_root: Path
+    internal_dir: Path
+    data_dir: Path
+    version_file: Path
+    updating_version_file: Path
+    safe_updater: Path
+    internal_updater: Path
+    local_zip: Path
+    application_executable: Path
+    tools_dir: Path
+    tool_sdk_source: Path
+    tool_sdk_target: Path
+    running_from_internal: bool
+
+    @classmethod
+    def from_runtime(
+        cls,
+        source_zip: Path | str | None = None,
+        executable_path: Path | str | None = None,
+    ) -> UpdatePaths:
+        """Resolve all update paths from the current runtime executable or script location."""
+        if executable_path is not None:
+            executable = Path(executable_path).resolve()
+        elif getattr(sys, "frozen", False):
+            executable = Path(sys.executable).resolve()
+        else:
+            executable = Path(__file__).resolve()
+
+        current_dir = executable.parent
+        running_from_internal = current_dir.name.casefold() == "_internal"
+        running_from_dev_updater = (
+            current_dir.name.casefold() == "updater"
+            and current_dir.parent.name.casefold() == "tools"
+        )
+
+        if running_from_internal:
+            app_root = current_dir.parent
+        elif running_from_dev_updater:
+            # Running directly from repo `tools/updater/updater.py` (or `updater.exe`) in development
+            app_root = current_dir.parent.parent
+            running_from_internal = True
+        else:
+            app_root = current_dir
+
+        internal_dir = app_root / "_internal"
+        data_dir = app_root / "data"
+        tools_dir = app_root / "tools"
+        updater_name = executable.name
+
+        resolved_source_zip = cls._resolve_source_zip(
+            app_root=app_root,
+            data_dir=data_dir,
+            source_zip=source_zip,
+        )
+
+        internal_updater = internal_dir / updater_name
+        if (
+            updater_name.casefold().endswith(".py")
+            and not internal_updater.is_file()
+            and (internal_dir / "updater.exe").is_file()
+        ):
+            internal_updater = internal_dir / "updater.exe"
+
+        return cls(
+            source_zip=resolved_source_zip,
+            executable=executable,
+            app_root=app_root,
+            internal_dir=internal_dir,
+            data_dir=data_dir,
+            version_file=data_dir / "version.txt",
+            updating_version_file=data_dir / "updating_version.txt",
+            safe_updater=app_root / updater_name,
+            internal_updater=internal_updater,
+            local_zip=app_root / f"{updater_name}.zip",
+            application_executable=app_root / MAIN_EXECUTABLE_NAME,
+            tools_dir=tools_dir,
+            tool_sdk_source=internal_dir / "tools" / "tool_sdk.py",
+            tool_sdk_target=tools_dir / "tool_sdk.py",
+            running_from_internal=running_from_internal,
+        )
+
+    @classmethod
+    def _resolve_source_zip(
+        cls,
+        app_root: Path,
+        data_dir: Path,
+        source_zip: Path | str | None = None,
+    ) -> Path:
+        """Resolve single deterministic update ZIP path.
+
+        Priority:
+        1. Explicit `source_zip` argument (CLI `--source-zip` or `IT_SUITE_UPDATE_ZIP` env var)
+        2. `update_source_zip` in `data/settings.json` (if non-empty)
+        3. Project root `released/ITRPASuite.zip`
+        """
+        project_root = (
+            app_root.parent if app_root.name.casefold() == APP_FOLDER_NAME.casefold() else app_root
+        )
+
+        raw_override: Path | str | None = source_zip
+        if not raw_override:
+            settings_file = data_dir / "settings.json"
+            if settings_file.is_file():
+                try:
+                    data = json.loads(settings_file.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        cfg_zip = str(data.get("update_source_zip", "")).strip()
+                        if cfg_zip:
+                            raw_override = cfg_zip
+                except Exception:
+                    pass
+
+        if raw_override:
+            candidate = Path(raw_override)
+            if candidate.is_absolute():
+                return candidate.resolve()
+            return (project_root / candidate).resolve()
+
+        return (project_root / DEFAULT_RELEASE_RELATIVE_PATH).resolve()
+
+
+@dataclass(frozen=True)
+class RetryPolicy:
+    """Retry configuration for file removal and process handoff."""
+
+    attempts: int
+    delay_seconds: float
+
+
+class Updater:
+    """Executes the three-stage self-update state machine."""
+
+    def __init__(self, paths: UpdatePaths, sleep_fn: Callable[[float], None] = time.sleep) -> None:
+        self.paths = paths
+        self._sleep = sleep_fn
+
+    def run(self) -> UpdateStage:
+        """Evaluate current stage and execute the corresponding state handler."""
+        stage = self.check_stage()
+        handlers: dict[UpdateStage, Callable[[], None]] = {
+            UpdateStage.NOT_NEEDED: self._handle_no_update,
+            UpdateStage.NEEDED: self.prepare_update,
+            UpdateStage.STARTED: self.install_update,
+            UpdateStage.IN_PROGRESS: self.finalize_update,
+        }
+        handlers[stage]()
+        return stage
+
+    def check_stage(self) -> UpdateStage:
+        """Determine the current `UpdateStage` based on marker files, location, and timestamps."""
+        p = self.paths
+
+        if not p.source_zip.is_file():
+            raise UpdateError(f"更新來源 ZIP 不存在：{p.source_zip}")
+
+        if p.updating_version_file.is_file():
+            if not p.running_from_internal:
+                raise UpdateError("偵測到更新標記，但 updater 不在 _internal 中。")
+            LOGGER.info("核心檔案已更新，準備執行收尾作業 (Stage 3: IN_PROGRESS)。")
+            return UpdateStage.IN_PROGRESS
+
+        if not p.version_file.is_file():
+            if p.running_from_internal:
+                LOGGER.warning("版本紀錄不存在，將直接執行修復更新：%s", p.version_file)
+                return UpdateStage.NEEDED
+            LOGGER.warning("版本紀錄不存在，將由安全區繼續更新。")
+            return UpdateStage.STARTED
+
+        installed_version = self._read_timestamp(p.version_file)
+        source_version = p.source_zip.stat().st_mtime
+
+        if source_version <= installed_version:
+            return UpdateStage.NOT_NEEDED
+
+        if p.running_from_internal:
+            LOGGER.info("偵測到較新版本，準備更新 (Stage 1: NEEDED)。")
+            return UpdateStage.NEEDED
+
+        LOGGER.info("安全區 updater 已啟動，繼續更新 (Stage 2: STARTED)。")
+        return UpdateStage.STARTED
+
+    def prepare_update(self) -> None:
+        """Stage 1: Copy updater from `_internal` to `app_root` safe zone and hand off."""
+        LOGGER.info("正在準備更新程式 (Stage 1)。")
+        self.paths.safe_updater.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(self.paths.executable, self.paths.safe_updater)
+        LOGGER.info("已複製 updater 至安全區：%s", self.paths.safe_updater)
+
+        self._retry(
+            action=lambda: self._launch(self.paths.safe_updater, self.paths.app_root),
+            policy=RetryPolicy(attempts=3, delay_seconds=3),
+            description="啟動安全區 updater",
+        )
+        self._sleep(1)
+        raise UpdateHandoff
+
+    def install_update(self) -> None:
+        """Stage 2: Copy update ZIP, remove old core, extract safely, write updating marker, and hand off."""
+        p = self.paths
+        LOGGER.info("正在複製新版 ZIP (Stage 2)。")
+        p.local_zip.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p.source_zip, p.local_zip)
+        target_version = p.local_zip.stat().st_mtime
+
+        LOGGER.info("正在清理舊核心程式。")
+        self._retry(
+            action=self._remove_old_core,
+            policy=RetryPolicy(attempts=10, delay_seconds=3),
+            description=f"清理舊程式，請確認 {MAIN_EXECUTABLE_NAME} 相關程序已關閉",
+        )
+
+        LOGGER.info("正在安全解壓縮新版 ZIP。")
+        self._extract_zip_safely(p.local_zip, p.app_root)
+        p.data_dir.mkdir(parents=True, exist_ok=True)
+        self._write_text_atomic(p.updating_version_file, str(target_version))
+        p.local_zip.unlink(missing_ok=True)
+        LOGGER.info("已鎖定本次更新版本：%s", target_version)
+
+        if not p.internal_updater.is_file():
+            fallback_updater_exe = p.internal_dir / "updater.exe"
+            if fallback_updater_exe.is_file():
+                target_internal_updater = fallback_updater_exe
+            else:
+                raise UpdateError(f"新版 updater 不存在：{p.internal_updater}")
+        else:
+            target_internal_updater = p.internal_updater
+
+        self._sleep(2)
+        self._launch(target_internal_updater, p.internal_dir)
+        self._sleep(1)
+        raise UpdateHandoff
+
+    def finalize_update(self) -> None:
+        """Stage 3: Commit `data/version.txt`, remove safe-zone copy, and sync `tools/tool_sdk.py`."""
+        p = self.paths
+        LOGGER.info("正在完成更新收尾作業 (Stage 3)。")
+        self._sleep(1)
+
+        if not p.updating_version_file.is_file():
+            raise UpdateError(f"找不到更新版本標記：{p.updating_version_file}")
+
+        target_version = p.updating_version_file.read_text(encoding="utf-8").strip()
+        self._validate_timestamp(target_version, p.updating_version_file)
+
+        p.data_dir.mkdir(parents=True, exist_ok=True)
+        self._write_text_atomic(p.version_file, target_version)
+        p.updating_version_file.unlink(missing_ok=True)
+        self._retry(
+            action=self._cleanup_safe_updater,
+            policy=RetryPolicy(attempts=10, delay_seconds=1),
+            description="刪除安全區 updater",
+        )
+
+        self._initialize_tools_directory()
+        LOGGER.info("更新成功，版本已更新為：%s", target_version)
+
+    def _cleanup_safe_updater(self) -> None:
+        p = self.paths
+        p.safe_updater.unlink(missing_ok=True)
+        for candidate in ("updater.exe", "updater.py"):
+            (p.app_root / candidate).unlink(missing_ok=True)
+
+    def _handle_no_update(self) -> None:
+        LOGGER.info("目前已是最新版本，無需更新。")
+
+    def _remove_old_core(self) -> None:
+        p = self.paths
+        if p.internal_dir.is_dir():
+            shutil.rmtree(p.internal_dir)
+        p.application_executable.unlink(missing_ok=True)
+
+    def _initialize_tools_directory(self) -> None:
+        p = self.paths
+        tools_dir_existed = p.tools_dir.exists()
+        p.tools_dir.mkdir(parents=True, exist_ok=True)
+
+        if tools_dir_existed:
+            LOGGER.info("tools 資料夾已存在：%s", p.tools_dir)
+        else:
+            LOGGER.info("已建立 tools 資料夾：%s", p.tools_dir)
+
+        if not p.tool_sdk_source.is_file():
+            LOGGER.warning("找不到內建工具 SDK 範本：%s", p.tool_sdk_source)
+            return
+
+        target_existed = p.tool_sdk_target.exists()
+        shutil.copy2(p.tool_sdk_source, p.tool_sdk_target)
+
+        if target_existed:
+            LOGGER.info("已同步更新 tools/tool_sdk.py：%s", p.tool_sdk_target)
+        else:
+            LOGGER.info("已複製初始 tools/tool_sdk.py：%s", p.tool_sdk_target)
+
+    def _launch(self, executable: Path, cwd: Path) -> None:
+        cmd = (
+            [sys.executable, str(executable)]
+            if executable.suffix.casefold() == ".py"
+            else [str(executable)]
+        )
+        env = os.environ.copy()
+        env["IT_SUITE_UPDATE_ZIP"] = str(self.paths.source_zip)
+        subprocess.Popen(cmd, cwd=str(cwd), env=env)
+
+    @staticmethod
+    def _read_timestamp(path: Path) -> float:
+        value = path.read_text(encoding="utf-8").strip()
+        return Updater._validate_timestamp(value, path)
+
+    @staticmethod
+    def _validate_timestamp(value: str, path: Path) -> float:
+        try:
+            timestamp = float(value)
+        except ValueError as exc:
+            raise UpdateError(f"版本紀錄格式錯誤：{path}") from exc
+        if timestamp < 0:
+            raise UpdateError(f"版本紀錄不可為負數：{path}")
+        return timestamp
+
+    @staticmethod
+    def _write_text_atomic(path: Path, content: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_suffix(f"{path.suffix}.tmp")
+        try:
+            with open(temp_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, path)
+        except Exception:
+            if temp_path.exists():
+                temp_path.unlink(missing_ok=True)
+            raise
+
+    @staticmethod
+    def _extract_zip_safely(zip_path: Path, destination: Path) -> None:
+        """Validate all ZIP entries before extraction to prevent Zip Slip path traversal."""
+        destination = destination.resolve()
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            for member in archive.infolist():
+                raw_name = member.filename
+                normalized = raw_name.replace("\\", "/")
+                member_obj = Path(normalized)
+                if member_obj.is_absolute() or (
+                    normalized.startswith("/") or ":" in member_obj.drive
+                ):
+                    raise UpdateError(f"ZIP 內含不安全絕對路徑：{raw_name}")
+
+                member_path = (destination / normalized).resolve()
+                try:
+                    member_path.relative_to(destination)
+                except ValueError as exc:
+                    raise UpdateError(f"ZIP 內含不安全路徑：{raw_name}") from exc
+
+            archive.extractall(destination)
+
+    def _retry(
+        self,
+        action: Callable[[], T],
+        policy: RetryPolicy,
+        description: str,
+    ) -> T:
+        last_error: Exception | None = None
+        for attempt in range(1, policy.attempts + 1):
+            try:
+                return action()
+            except (OSError, subprocess.SubprocessError) as exc:
+                last_error = exc
+                if attempt == policy.attempts:
+                    break
+                LOGGER.warning(
+                    "%s失敗：%s；%.0f 秒後重試（%d/%d）。",
+                    description,
+                    exc,
+                    policy.delay_seconds,
+                    attempt,
+                    policy.attempts,
+                )
+                self._sleep(policy.delay_seconds)
+
+        raise UpdateError(f"{description}失敗，已達重試上限。") from last_error
+
+
+def resolve_source_zip_arg(cli_args: list[str] | None = None) -> Path | None:
+    """Resolve explicit source ZIP override from CLI (`--source-zip`) or environment variable."""
+    parser = argparse.ArgumentParser(description="IT RPA Suite Three-Stage Updater")
+    parser.add_argument(
+        "--source-zip",
+        dest="source_zip",
+        default=None,
+        help="Path to update package ZIP (default: ./released/ITRPASuite.zip)",
+    )
+    parsed, _ = parser.parse_known_args(cli_args)
+
+    if parsed.source_zip:
+        return Path(parsed.source_zip)
+
+    env_zip = os.environ.get("IT_SUITE_UPDATE_ZIP", "").strip()
+    if env_zip:
+        return Path(env_zip)
+
+    return None
+
+
+def configure_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+
+def pause(message: str) -> None:
+    if sys.stdin and sys.stdin.isatty():
+        input(message)
+
+
+def main(cli_args: list[str] | None = None) -> int:
+    configure_logging()
+
+    source_zip_override = resolve_source_zip_arg(cli_args)
+    paths = UpdatePaths.from_runtime(source_zip=source_zip_override)
+    updater = Updater(paths)
+
+    try:
+        updater.run()
+    except UpdateHandoff:
+        LOGGER.info("更新工作已交棒，目前 updater 程序立即結束。")
+        return 0
+    except (UpdateError, OSError, zipfile.BadZipFile) as exc:
+        LOGGER.exception("更新失敗：%s", exc)
+        pause("更新發生錯誤，按 Enter 結束...")
+        return 1
+
+    pause("執行完成，按 Enter 結束...")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

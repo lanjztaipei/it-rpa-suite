@@ -1,0 +1,62 @@
+[
+  {
+    "category": "Incident Request",
+    "email": "emp__@enterprise.local",
+    "title": "IT-__電腦硬體檢測",
+    "type": "Hardware",
+    "sub_type": "RAM / Storage Upgrade",
+    "corp": "Enterprise-HQ",
+    "resolve": "已協助使用者完成記憶體擴充。",
+    "_ui_group": "電腦相關"
+  },
+  {
+    "category": "Incident Request",
+    "email": "emp__@enterprise.local",
+    "title": "emp__ VPN 連線異常排除",
+    "type": "Network",
+    "sub_type": "VPN Client Access",
+    "corp": "Enterprise-HQ",
+    "resolve": "已清除過期快取、重新匯入憑證並驗證遠端連線正常。",
+    "_ui_group": "電腦相關"
+  },
+  {
+    "category": "Routine Task",
+    "email": "itadmin@enterprise.local",
+    "title": "__機房例行巡檢",
+    "type": "Data Center Inspection",
+    "sub_type": "",
+    "corp": "",
+    "resolve": "已完成機房冷熱通道溫溼度、UPS 不斷電系統負載及機櫃燈號例行查核。",
+    "_ui_group": "例行事項"
+  },
+  {
+    "category": "Routine Task",
+    "email": "itadmin@enterprise.local",
+    "title": "每週端點防護代理程式 (EDR) 連線率稽核",
+    "type": "Security Compliance",
+    "sub_type": "",
+    "corp": "",
+    "resolve": "已匯出本週全廠區工作站 EDR 狀態報表，並針對離線超過 7 天之設備完成重啟服務與特徵碼更新。",
+    "_ui_group": "例行事項"
+  },
+  {
+    "category": "Incident Request",
+    "email": "emp__@enterprise.local",
+    "title": "新進同仁標準辦公軟體與印表機權限建置",
+    "type": "Software",
+    "sub_type": "Standard Office Suite",
+    "corp": "Enterprise-HQ",
+    "resolve": "已依部門基準完成企業辦公套件授權啟用、雲端硬碟掛載與樓層多功能事務機驅動設定。",
+    "_ui_group": "開給同仁"
+  },
+  {
+    "category": "Incident Request",
+    "email": "emp__@enterprise.local",
+    "title": "emp__ 研發測試環境跨網段存取申請",
+    "type": "Network",
+    "sub_type": "Firewall & VLAN Policy",
+    "corp": "Enterprise-Branch",
+    "resolve": "已核對資安簽核單號，完成防火牆存取策略開通。",
+    "_ui_group": "IT交辦"
+  }
+]

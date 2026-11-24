@@ -1,0 +1,18 @@
+{
+  "dark_mode": false,
+  "caller_id_enabled": true,
+  "update_source_zip": "released/ITRPASuite.zip",
+  "coefficients": {
+    "short_loan": 1.5,
+    "project_loan": 2.0,
+    "asset_return": 2.0,
+    "holder_lookup": 1.5,
+    "onboarding_issue": 5.0,
+    "offboarding_clearance": 10.0,
+    "nac_single_mac": 1.5,
+    "nac_dual_mac": 2.0,
+    "incident_ticket": 3.0,
+    "routine_ticket": 3.0,
+    "caller_lookup": 2.0
+  }
+}
