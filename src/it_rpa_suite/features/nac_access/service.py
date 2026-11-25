@@ -6,7 +6,11 @@ from typing import Any
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from it_rpa_suite.adapters.credentials_dpapi import CredentialStore
+from it_rpa_suite.adapters.credentials_dpapi import (
+    CredentialStore,
+    is_sandbox_mode,
+    resolve_login_credentials,
+)
 from it_rpa_suite.adapters.logger import get_logger
 from it_rpa_suite.adapters.result import (
     ServiceResult,
@@ -56,19 +60,28 @@ def login_nac_if_needed(
     credentials: dict[str, str] | None = None,
 ) -> None:
     """Authenticate on the network console if the login gate is visible."""
-    creds = credentials or CredentialStore().load()
-    username = creds.get("nac_account") or creds.get("portal_account") or "nac.admin"
-    password = creds.get("nac_password") or creds.get("portal_password") or "Sandbox@2026"
-
     login_input = nac_page.locator("#nac-login-username")
     try:
-        if login_input.is_visible(timeout=800):
-            login_input.fill(username)
-            nac_page.locator("#nac-login-password").fill(password)
-            nac_page.locator("#btn-nac-login").click()
-            nac_page.locator("#nac-frames-container").wait_for(state="visible", timeout=5000)
-    except Exception:
+        login_visible = bool(login_input.is_visible(timeout=800))
+    except PlaywrightTimeoutError:
+        login_visible = False
+
+    if not login_visible:
         logger.debug("網管控制台已處於登入狀態")
+        return
+
+    username, password = resolve_login_credentials(
+        credentials,
+        account_keys=("nac_account", "portal_account"),
+        password_keys=("nac_password", "portal_password"),
+        default_account="nac.admin",
+        default_password="Sandbox@2026",
+        system_name="網管控制台",
+    )
+    login_input.fill(username)
+    nac_page.locator("#nac-login-password").fill(password)
+    nac_page.locator("#btn-nac-login").click()
+    nac_page.locator("#nac-frames-container").wait_for(state="visible", timeout=5000)
 
 
 def _get_required_frame(page: Any, frame_name: str) -> Any:
@@ -152,10 +165,14 @@ def run_nac_unlock(
     mac_wifi = ""
     processed_macs: list[str] = []
     store = storage or AppStorage()
-    creds = credentials or CredentialStore().load()
     clean_base = base_url.rstrip("/")
 
     try:
+        creds = (
+            credentials
+            if credentials is not None
+            else CredentialStore().load(raise_on_error=not is_sandbox_mode())
+        )
         # 1. Query Asset Portal and intercept detail tab
         search_page = browser_session.new_page()
         search_page.goto(f"{clean_base}/portal/assets/search")

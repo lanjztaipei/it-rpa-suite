@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from it_rpa_suite.adapters.credentials_dpapi import CredentialStore
+from it_rpa_suite.adapters.credentials_dpapi import CredentialStore, is_sandbox_mode
 from it_rpa_suite.adapters.logger import get_logger
 from it_rpa_suite.adapters.paths import AppPaths, get_app_paths
 from it_rpa_suite.adapters.result import ServiceResult
@@ -420,9 +420,13 @@ def run_batch_tickets(
     page = None
     completed_count = 0
     store = storage or AppStorage()
-    creds = credentials or CredentialStore().load()
 
     try:
+        creds = (
+            credentials
+            if credentials is not None
+            else CredentialStore().load(raise_on_error=not is_sandbox_mode())
+        )
         if not prepared_templates:
             raise ValueError("沒有選取任何工單模板")
 

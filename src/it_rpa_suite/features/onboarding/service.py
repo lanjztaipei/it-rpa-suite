@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from it_rpa_suite.adapters.credentials_dpapi import CredentialStore
+from it_rpa_suite.adapters.credentials_dpapi import CredentialStore, is_sandbox_mode
 from it_rpa_suite.adapters.logger import get_logger
 from it_rpa_suite.adapters.mailer import compose_or_preview_email
 from it_rpa_suite.adapters.result import (
@@ -299,10 +299,14 @@ def run_offboarding_clearance(
     return_page = None
     telecom_page = None
     store = storage or AppStorage()
-    creds = credentials or CredentialStore().load()
     clean_base = base_url.rstrip("/")
 
     try:
+        creds = (
+            credentials
+            if credentials is not None
+            else CredentialStore().load(raise_on_error=not is_sandbox_mode())
+        )
         # 1. HR Offboarding system: retrieve offboarding request no & checklist HTML table
         hr_page = browser_session.new_page()
         hr_page.goto(f"{clean_base}/portal/hr/offboarding")

@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
 
 from it_rpa_suite.adapters.credentials_dpapi import (
+    CredentialError,
     CredentialStore,
     decrypt_credentials,
     encrypt_credentials,
+    is_sandbox_mode,
+    resolve_login_credentials,
 )
 from it_rpa_suite.adapters.paths import AppPaths, get_app_paths
 from it_rpa_suite.adapters.storage import AppStorage
@@ -136,6 +143,65 @@ def test_credential_store_dpapi_and_validation(tmp_path: Path) -> None:
     store.save(sample_creds)
     assert store.exists()
     assert store.load() == sample_creds
+
+
+def test_credentials_fail_fast_outside_sandbox_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify non-sandbox mode rejects missing/corrupted credentials instead of falling back."""
+    from it_rpa_suite.features.asset_loan.service import login_portal_if_needed
+    from it_rpa_suite.features.nac_access.service import login_nac_if_needed
+
+    monkeypatch.delenv("IT_SUITE_SANDBOX_MODE", raising=False)
+    assert is_sandbox_mode() is True
+
+    monkeypatch.setenv("IT_SUITE_SANDBOX_MODE", "false")
+    assert is_sandbox_mode() is False
+
+    # 1. Missing credentials must raise CredentialError instead of falling back
+    store = CredentialStore(base_dir=tmp_path)
+    with pytest.raises(CredentialError, match="禁止自動退回"):
+        resolve_login_credentials(
+            None,
+            account_keys=("portal_account",),
+            password_keys=("portal_password",),
+            default_account="it.admin",
+            default_password="Sandbox@2026",
+            store=store,
+            system_name="企業入口網",
+        )
+
+    # 2. Corrupted DPAPI ciphertext must raise CredentialError when raise_on_error=True
+    store.file_path.parent.mkdir(parents=True, exist_ok=True)
+    store.file_path.write_text("corrupted-not-valid-dpapi-blob!!!", encoding="utf-8")
+    with pytest.raises(CredentialError):
+        store.load(raise_on_error=True)
+
+    # 3. Portal & NAC login helpers must propagate CredentialError (never swallow it)
+    mock_page = MagicMock()
+    mock_locator = MagicMock()
+    mock_locator.is_visible.return_value = True
+    mock_page.locator.return_value = mock_locator
+
+    with pytest.raises(CredentialError):
+        login_portal_if_needed(mock_page, credentials={})
+    mock_locator.fill.assert_not_called()
+
+    with pytest.raises(CredentialError):
+        login_nac_if_needed(mock_page, credentials={})
+    mock_locator.fill.assert_not_called()
+
+    # 4. External tool_sdk.read_credentials() also fails fast outside sandbox mode
+    tools_dir = Path(__file__).resolve().parents[1] / "tools"
+    if str(tools_dir) not in sys.path:
+        sys.path.insert(0, str(tools_dir))
+    import tool_sdk
+
+    empty_root = tmp_path / "empty_sdk_root"
+    empty_root.mkdir()
+    with pytest.raises(FileNotFoundError):
+        tool_sdk.read_credentials(base_dir=empty_root)
 
 
 def test_mock_server_port_fallback_when_occupied() -> None:
