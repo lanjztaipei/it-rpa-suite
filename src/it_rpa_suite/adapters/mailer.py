@@ -2,17 +2,173 @@
 
 from __future__ import annotations
 
+import atexit
 import html
 import os
 import tempfile
 import webbrowser
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
 from it_rpa_suite.adapters.logger import get_logger
 
 logger = get_logger(__name__)
+
+_ALLOWED_HTML_TAGS: frozenset[str] = frozenset(
+    {
+        "a",
+        "b",
+        "blockquote",
+        "br",
+        "caption",
+        "code",
+        "col",
+        "colgroup",
+        "div",
+        "em",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "hr",
+        "i",
+        "li",
+        "ol",
+        "p",
+        "pre",
+        "small",
+        "span",
+        "strong",
+        "table",
+        "tbody",
+        "td",
+        "tfoot",
+        "th",
+        "thead",
+        "tr",
+        "u",
+        "ul",
+    }
+)
+_VOID_HTML_TAGS: frozenset[str] = frozenset({"br", "col", "hr"})
+_STRIP_CONTENT_TAGS: frozenset[str] = frozenset(
+    {"script", "style", "iframe", "object", "embed", "noscript"}
+)
+_ALLOWED_HTML_ATTRS: frozenset[str] = frozenset(
+    {
+        "align",
+        "border",
+        "cellpadding",
+        "cellspacing",
+        "class",
+        "colspan",
+        "href",
+        "id",
+        "rowspan",
+        "title",
+        "valign",
+        "width",
+    }
+)
+_SAFE_URL_PREFIXES: tuple[str, ...] = ("http://", "https://", "mailto:", "#")
+_PREVIEW_TEMP_FILES: set[Path] = set()
+
+
+class _SafeEmailHtmlSanitizer(HTMLParser):
+    """Allowlist-based HTML sanitizer using stdlib `HTMLParser` for safe local browser preview."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        lower_tag = tag.lower()
+        if lower_tag in _STRIP_CONTENT_TAGS:
+            self._skip_depth += 1
+            return
+        if self._skip_depth > 0 or lower_tag not in _ALLOWED_HTML_TAGS:
+            return
+        self._parts.append(self._format_start_tag(lower_tag, attrs, self_closing=False))
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        lower_tag = tag.lower()
+        if self._skip_depth > 0 or lower_tag in _STRIP_CONTENT_TAGS:
+            return
+        if lower_tag not in _ALLOWED_HTML_TAGS:
+            return
+        self._parts.append(self._format_start_tag(lower_tag, attrs, self_closing=True))
+
+    def handle_endtag(self, tag: str) -> None:
+        lower_tag = tag.lower()
+        if lower_tag in _STRIP_CONTENT_TAGS:
+            if self._skip_depth > 0:
+                self._skip_depth -= 1
+            return
+        if (
+            self._skip_depth > 0
+            or lower_tag not in _ALLOWED_HTML_TAGS
+            or lower_tag in _VOID_HTML_TAGS
+        ):
+            return
+        self._parts.append(f"</{lower_tag}>")
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth > 0:
+            return
+        self._parts.append(html.escape(data, quote=False))
+
+    @staticmethod
+    def _format_start_tag(
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+        *,
+        self_closing: bool,
+    ) -> str:
+        safe_attrs: list[str] = []
+        for raw_name, raw_val in attrs:
+            attr_name = (raw_name or "").strip().lower()
+            if not attr_name or attr_name.startswith("on") or attr_name not in _ALLOWED_HTML_ATTRS:
+                continue
+            attr_val = "" if raw_val is None else str(raw_val)
+            if attr_name == "href":
+                normalized_href = "".join(ch for ch in attr_val if ord(ch) >= 32).strip().lower()
+                if not normalized_href.startswith(_SAFE_URL_PREFIXES):
+                    continue
+            safe_attrs.append(f'{attr_name}="{html.escape(attr_val, quote=True)}"')
+
+        attr_str = f" {' '.join(safe_attrs)}" if safe_attrs else ""
+        closing = " /" if self_closing and tag in _VOID_HTML_TAGS else ""
+        return f"<{tag}{attr_str}{closing}>"
+
+    def get_html(self) -> str:
+        return "".join(self._parts)
+
+
+def sanitize_email_html(raw_html: str) -> str:
+    """Sanitize scraped or user-supplied email HTML to prevent local script execution."""
+    sanitizer = _SafeEmailHtmlSanitizer()
+    sanitizer.feed(raw_html or "")
+    sanitizer.close()
+    return sanitizer.get_html()
+
+
+def cleanup_preview_temp_files() -> None:
+    """Delete temporary HTML preview files created during this process."""
+    for path in list(_PREVIEW_TEMP_FILES):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        finally:
+            _PREVIEW_TEMP_FILES.discard(path)
+
+
+atexit.register(cleanup_preview_temp_files)
 
 
 @dataclass
@@ -128,8 +284,10 @@ def render_standalone_email_html(draft: DraftEmail | dict[str, Any]) -> str:
     data = draft.to_dict() if isinstance(draft, DraftEmail) else dict(draft)
     to_addr = html.escape(str(data.get("to", "")))
     cc_addr = html.escape(str(data.get("cc", ""))) or "（無）"
+    bcc_addr = html.escape(str(data.get("bcc", "")).strip())
     subject = html.escape(str(data.get("subject", "（無主旨）")))
-    body_html = str(data.get("html_body", ""))
+    body_html = sanitize_email_html(str(data.get("html_body", "")))
+    bcc_row = f"\n      <div><strong>密件副本 (BCC):</strong> {bcc_addr}</div>" if bcc_addr else ""
 
     return f"""<!DOCTYPE html>
 <html lang="zh-TW">
@@ -183,7 +341,7 @@ def render_standalone_email_html(draft: DraftEmail | dict[str, Any]) -> str:
     </div>
     <div class="mail-meta">
       <div><strong>收件人 (To):</strong> {to_addr}</div>
-      <div><strong>副本 (CC):</strong> {cc_addr}</div>
+      <div><strong>副本 (CC):</strong> {cc_addr}</div>{bcc_row}
       <div><strong>主旨 (Subject):</strong> <b>{subject}</b></div>
     </div>
     <div class="mail-body">
@@ -207,6 +365,7 @@ def open_draft_in_browser(draft: DraftEmail | dict[str, Any]) -> Path:
         tmp.write(full_html)
         temp_path = Path(tmp.name)
 
+    _PREVIEW_TEMP_FILES.add(temp_path)
     try:
         webbrowser.open(temp_path.as_uri())
     except Exception:

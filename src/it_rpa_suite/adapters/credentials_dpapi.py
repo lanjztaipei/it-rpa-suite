@@ -24,6 +24,16 @@ CREDENTIAL_FIELDS: dict[str, str] = {
 }
 
 
+class CredentialError(RuntimeError):
+    """Raised when DPAPI credentials are missing, invalid, or fail decryption outside sandbox mode."""
+
+
+def is_sandbox_mode() -> bool:
+    """Return True when sandbox defaults are allowed (`IT_SUITE_SANDBOX_MODE`, default True)."""
+    raw = os.environ.get("IT_SUITE_SANDBOX_MODE", "true").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
 def encrypt_credentials(data: dict[str, str]) -> str:
     """Encrypt a dictionary using Windows DPAPI (CryptProtectData) and return Base64 text."""
     try:
@@ -38,7 +48,7 @@ def encrypt_credentials(data: dict[str, str]) -> str:
         )
         return base64.b64encode(encrypted_blob).decode("utf-8")
     except Exception as exc:
-        raise RuntimeError(f"DPAPI 加密失敗：{exc}") from exc
+        raise CredentialError(f"DPAPI 加密失敗：{exc}") from exc
 
 
 def decrypt_credentials(encrypted_text: str) -> dict[str, str]:
@@ -54,10 +64,12 @@ def decrypt_credentials(encrypted_text: str) -> dict[str, str]:
         )
         parsed = json.loads(raw_bytes.decode("utf-8"))
         if not isinstance(parsed, dict):
-            return {}
+            raise CredentialError("憑證內容格式不正確（非 JSON 物件）")
         return {str(k): str(v) for k, v in parsed.items()}
+    except CredentialError:
+        raise
     except Exception as exc:
-        raise RuntimeError(f"DPAPI 解密失敗：{exc}") from exc
+        raise CredentialError(f"DPAPI 解密失敗：{exc}") from exc
 
 
 def validate_credentials(data: dict[str, str]) -> ValidationResult:
@@ -113,17 +125,30 @@ class CredentialStore:
     def exists(self) -> bool:
         return self.file_path.is_file() and self.file_path.stat().st_size > 0
 
-    def load(self) -> dict[str, str]:
-        """Load and decrypt existing credentials; return empty dict if missing or corrupted."""
+    def load(self, *, raise_on_error: bool = False) -> dict[str, str]:
+        """Load and decrypt existing credentials.
+
+        When `raise_on_error=True`, decryption failures or corrupted files raise `CredentialError`
+        instead of returning an empty dict.
+        """
         if not self.exists():
             return {}
         try:
             encrypted_text = self.file_path.read_text(encoding="utf-8").strip()
             if not encrypted_text:
+                if raise_on_error:
+                    raise CredentialError(f"系統憑證檔內容為空：{self.file_path}")
                 return {}
             return decrypt_credentials(encrypted_text)
-        except Exception:
+        except CredentialError:
             logger.exception("讀取或解密憑證檔失敗: %s", self.file_path)
+            if raise_on_error:
+                raise
+            return {}
+        except Exception as exc:
+            logger.exception("讀取或解密憑證檔失敗: %s", self.file_path)
+            if raise_on_error:
+                raise CredentialError(f"讀取或解密憑證檔失敗：{exc}") from exc
             return {}
 
     def save(self, credentials: dict[str, str]) -> None:
@@ -146,3 +171,38 @@ class CredentialStore:
     @staticmethod
     def validate(credentials: dict[str, str]) -> ValidationResult:
         return validate_credentials(credentials)
+
+
+def resolve_login_credentials(
+    credentials: dict[str, str] | None,
+    *,
+    account_keys: tuple[str, ...],
+    password_keys: tuple[str, ...],
+    default_account: str,
+    default_password: str,
+    store: CredentialStore | None = None,
+    system_name: str = "系統",
+) -> tuple[str, str]:
+    """Resolve login username/password, enforcing fail-fast when outside sandbox mode."""
+    sandbox = is_sandbox_mode()
+    creds = (
+        credentials
+        if credentials is not None
+        else (store or CredentialStore()).load(raise_on_error=not sandbox)
+    )
+
+    username = next(
+        (str(creds.get(key) or "").strip() for key in account_keys if creds.get(key)), ""
+    )
+    password = next((str(creds.get(key) or "") for key in password_keys if creds.get(key)), "")
+
+    if username and password:
+        return username, password
+
+    if sandbox:
+        return username or default_account, password or default_password
+
+    raise CredentialError(
+        f"找不到有效的{system_name}憑證，請先至「系統憑證設定」重新設定並加密儲存"
+        "（非沙盒模式下禁止自動退回預設範例帳密）"
+    )

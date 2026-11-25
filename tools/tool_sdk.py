@@ -88,38 +88,64 @@ def decrypt_credentials(encrypted_text: str) -> dict[str, str]:
         raise RuntimeError(f"DPAPI 憑證解密失敗：{exc}") from exc
 
 
+def is_sandbox_mode() -> bool:
+    """Return True when sandbox credential fallback is allowed (`IT_SUITE_SANDBOX_MODE`)."""
+    raw = os.environ.get("IT_SUITE_SANDBOX_MODE", "true").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
 def read_credentials(
     base_dir: Path | None = None,
-    allow_default_fallback: bool = True,
+    allow_default_fallback: bool | None = None,
 ) -> dict[str, str]:
     """Read and decrypt `data/credentials.dat`.
 
-    If the file does not exist and `allow_default_fallback=True`, returns
-    `DEFAULT_SANDBOX_CREDENTIALS` so standalone sandbox demos can run immediately.
+    When `allow_default_fallback` is `None`, follows `is_sandbox_mode()`.
+    Outside sandbox mode, missing/corrupted credentials fail fast instead of
+    silently falling back to hardcoded demo credentials.
     """
+    use_fallback = is_sandbox_mode() if allow_default_fallback is None else allow_default_fallback
     root_dir = (base_dir or BASE_DIR).resolve()
     cred_path = root_dir / "data" / "credentials.dat"
 
     if not cred_path.is_file():
-        if allow_default_fallback:
+        if use_fallback:
             return dict(DEFAULT_SANDBOX_CREDENTIALS)
         raise FileNotFoundError(f"找不到系統憑證檔：{cred_path}（請先於主程式設定系統憑證）")
 
     encrypted_data = cred_path.read_text(encoding="utf-8").strip()
     if not encrypted_data:
-        if allow_default_fallback:
+        if use_fallback:
             return dict(DEFAULT_SANDBOX_CREDENTIALS)
         raise RuntimeError(f"系統憑證檔內容為空：{cred_path}")
 
     data = decrypt_credentials(encrypted_data)
+    if use_fallback:
+        return {
+            "email": data.get("email", DEFAULT_SANDBOX_CREDENTIALS["email"]),
+            "portal_account": data.get(
+                "portal_account", DEFAULT_SANDBOX_CREDENTIALS["portal_account"]
+            ),
+            "portal_password": data.get(
+                "portal_password", DEFAULT_SANDBOX_CREDENTIALS["portal_password"]
+            ),
+            "nac_account": data.get("nac_account", DEFAULT_SANDBOX_CREDENTIALS["nac_account"]),
+            "nac_password": data.get("nac_password", DEFAULT_SANDBOX_CREDENTIALS["nac_password"]),
+        }
+
+    missing = [
+        key
+        for key in ("email", "portal_account", "portal_password", "nac_account", "nac_password")
+        if not str(data.get(key) or "").strip()
+    ]
+    if missing:
+        raise RuntimeError(f"系統憑證檔缺少必要欄位（{', '.join(missing)}），請重新設定憑證")
     return {
-        "email": data.get("email", DEFAULT_SANDBOX_CREDENTIALS["email"]),
-        "portal_account": data.get("portal_account", DEFAULT_SANDBOX_CREDENTIALS["portal_account"]),
-        "portal_password": data.get(
-            "portal_password", DEFAULT_SANDBOX_CREDENTIALS["portal_password"]
-        ),
-        "nac_account": data.get("nac_account", DEFAULT_SANDBOX_CREDENTIALS["nac_account"]),
-        "nac_password": data.get("nac_password", DEFAULT_SANDBOX_CREDENTIALS["nac_password"]),
+        "email": data["email"],
+        "portal_account": data["portal_account"],
+        "portal_password": data["portal_password"],
+        "nac_account": data["nac_account"],
+        "nac_password": data["nac_password"],
     }
 
 
@@ -184,15 +210,25 @@ def ensure_sandbox_server(preferred_port: int = 8000) -> Iterator[str]:
                 pass
 
 
+def should_ignore_https_errors() -> bool:
+    """Return True only when `IT_SUITE_IGNORE_HTTPS_ERRORS` is explicitly enabled."""
+    raw = os.environ.get("IT_SUITE_IGNORE_HTTPS_ERRORS", "false").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def setup_browser(
     headless: bool = False,
     downloads_path: str | None = None,
     dialog_action: str | Callable[[Any], None] | None = "accept",
     default_timeout_ms: int = 30000,
+    ignore_https_errors: bool | None = None,
 ) -> tuple[Any, Any, Any, Any]:
     """Launch Microsoft Edge (with fallback to Chromium) and return `(playwright, browser, context, page)`."""
     playwright = sync_playwright().start()
     launch_args = [] if headless else EDGE_LAUNCH_ARGS
+    ignore_https = (
+        should_ignore_https_errors() if ignore_https_errors is None else bool(ignore_https_errors)
+    )
 
     try:
         browser = playwright.chromium.launch(
@@ -210,7 +246,7 @@ def setup_browser(
 
     context_kwargs: dict[str, Any] = {
         "accept_downloads": True,
-        "ignore_https_errors": True,
+        "ignore_https_errors": ignore_https,
         "locale": "zh-TW",
     }
     if not headless:

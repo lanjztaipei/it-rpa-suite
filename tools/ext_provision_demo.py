@@ -167,7 +167,7 @@ def run_provision_flow(
 
 
 def main() -> None:
-    creds = read_credentials(allow_default_fallback=True)
+    creds = read_credentials()
     print(f"[SDK] 已載入工程師憑證：{creds['email']} (Portal 帳號: {creds['portal_account']})")
 
     emp_id, emp_name, mac_addr, area_code = ask_user_inputs()

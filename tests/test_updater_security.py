@@ -26,6 +26,7 @@ from updater import (  # noqa: E402
     UpdatePaths,
     Updater,
     UpdateStage,
+    resolve_expected_sha256_arg,
     resolve_source_zip_arg,
 )
 
@@ -304,8 +305,154 @@ def test_full_three_stage_self_update_lifecycle(
         encoding="utf-8"
     ) == "# Updated Tool SDK v2\n"
 
-    # Subsequent check should report NOT_NEEDED
+    # Subsequent check should report NOT_NEEDED and backups must be cleaned up
     assert stage3_updater.check_stage() == UpdateStage.NOT_NEEDED
+    assert not stage3_paths.backup_internal_dir.exists()
+    assert not stage3_paths.backup_executable.exists()
+    assert not stage3_paths.staging_dir.exists()
+
+
+def test_install_update_corrupted_zip_preserves_existing_core(tmp_path: Path) -> None:
+    """Verify corrupted ZIP fails in staging without removing or bricking the old installation."""
+    app_root = tmp_path / "app"
+    internal_dir = app_root / "_internal"
+    internal_dir.mkdir(parents=True)
+    (app_root / MAIN_EXECUTABLE_NAME).write_text("old-exe-v1", encoding="utf-8")
+    (internal_dir / "updater.exe").write_text("updater-v1", encoding="utf-8")
+    Updater._write_text_atomic(app_root / "data" / "version.txt", "1000.0")
+
+    bad_zip = app_root / "released" / "ITRPASuite.zip"
+    bad_zip.parent.mkdir(parents=True, exist_ok=True)
+    bad_zip.write_bytes(b"not-a-valid-zip-archive")
+    os.utime(bad_zip, (3000.0, 3000.0))
+
+    paths = _make_paths(app_root, bad_zip, running_from_internal=False)
+    updater = Updater(paths, sleep_fn=lambda _: None)
+
+    with pytest.raises(UpdateError, match="損毀"):
+        updater.install_update()
+
+    assert (app_root / MAIN_EXECUTABLE_NAME).read_text(encoding="utf-8") == "old-exe-v1"
+    assert (internal_dir / "updater.exe").read_text(encoding="utf-8") == "updater-v1"
+    assert not paths.local_zip.exists()
+    assert not paths.staging_dir.exists()
+
+
+def test_install_update_zip_slip_preserves_existing_core(tmp_path: Path) -> None:
+    """Verify Zip Slip archive is rejected before touching existing `_internal/` and EXE."""
+    app_root = tmp_path / "app"
+    internal_dir = app_root / "_internal"
+    internal_dir.mkdir(parents=True)
+    (app_root / MAIN_EXECUTABLE_NAME).write_text("old-exe-v1", encoding="utf-8")
+    (internal_dir / "updater.exe").write_text("updater-v1", encoding="utf-8")
+    Updater._write_text_atomic(app_root / "data" / "version.txt", "1000.0")
+
+    evil_zip = _create_release_zip(
+        app_root / "released" / "ITRPASuite.zip",
+        {
+            MAIN_EXECUTABLE_NAME: "evil-v2",
+            "../../escaped.exe": "payload",
+        },
+    )
+    os.utime(evil_zip, (3000.0, 3000.0))
+
+    paths = _make_paths(app_root, evil_zip, running_from_internal=False)
+    updater = Updater(paths, sleep_fn=lambda _: None)
+
+    with pytest.raises(UpdateError, match="不安全"):
+        updater.install_update()
+
+    assert (app_root / MAIN_EXECUTABLE_NAME).read_text(encoding="utf-8") == "old-exe-v1"
+    assert (internal_dir / "updater.exe").read_text(encoding="utf-8") == "updater-v1"
+    assert not (tmp_path / "escaped.exe").exists()
+    assert not paths.staging_dir.exists()
+
+
+def test_install_update_sha256_verification_and_sidecar(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify SHA-256 sidecar & CLI/env checksum mismatch blocks update, and valid hash succeeds."""
+    app_root = tmp_path / "app"
+    internal_dir = app_root / "_internal"
+    internal_dir.mkdir(parents=True)
+    (app_root / MAIN_EXECUTABLE_NAME).write_text("old-exe-v1", encoding="utf-8")
+    (internal_dir / "updater.exe").write_text("updater-v1", encoding="utf-8")
+
+    source_zip = _create_release_zip(
+        app_root / "released" / "ITRPASuite.zip",
+        {
+            MAIN_EXECUTABLE_NAME: "new-exe-v2",
+            "_internal/updater.exe": "updater-v2",
+        },
+    )
+    sidecar = Path(f"{source_zip}.sha256")
+    sidecar.write_text(("0" * 64) + "  ITRPASuite.zip\n", encoding="utf-8")
+
+    paths = _make_paths(app_root, source_zip, running_from_internal=False)
+    updater = Updater(paths, sleep_fn=lambda _: None)
+
+    # Mismatched sidecar hash must fail without touching old core
+    with pytest.raises(UpdateError, match="SHA-256"):
+        updater.install_update()
+    assert (app_root / MAIN_EXECUTABLE_NAME).read_text(encoding="utf-8") == "old-exe-v1"
+    assert (internal_dir / "updater.exe").read_text(encoding="utf-8") == "updater-v1"
+
+    # Write matching sidecar hash -> promotion should succeed and hand off
+    valid_hash = Updater._compute_sha256(source_zip)
+    sidecar.write_text(f"{valid_hash}  ITRPASuite.zip\n", encoding="utf-8")
+    launched: list[Path] = []
+    monkeypatch.setattr(Updater, "_launch", lambda _self, exe, _cwd: launched.append(Path(exe)))
+
+    with pytest.raises(UpdateHandoff):
+        updater.install_update()
+
+    assert (app_root / MAIN_EXECUTABLE_NAME).read_text(encoding="utf-8") == "new-exe-v2"
+    assert launched[-1] == paths.internal_updater
+
+    # Verify CLI & env SHA-256 argument resolution
+    assert resolve_expected_sha256_arg(["--sha256", valid_hash]) == valid_hash
+    monkeypatch.setenv("IT_SUITE_UPDATE_SHA256", valid_hash)
+    assert resolve_expected_sha256_arg([]) == valid_hash
+
+
+def test_install_update_rolls_back_old_core_on_promotion_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify failed promotion automatically restores backed-up old core."""
+    app_root = tmp_path / "app"
+    internal_dir = app_root / "_internal"
+    internal_dir.mkdir(parents=True)
+    (app_root / MAIN_EXECUTABLE_NAME).write_text("old-exe-v1", encoding="utf-8")
+    (internal_dir / "updater.exe").write_text("updater-v1", encoding="utf-8")
+
+    source_zip = _create_release_zip(
+        app_root / "released" / "ITRPASuite.zip",
+        {
+            MAIN_EXECUTABLE_NAME: "new-exe-v2",
+            "_internal/updater.exe": "updater-v2",
+        },
+    )
+
+    paths = _make_paths(app_root, source_zip, running_from_internal=False)
+    updater = Updater(paths, sleep_fn=lambda _: None)
+
+    def _broken_promote(_staging: Path, target_root: Path) -> None:
+        (target_root / MAIN_EXECUTABLE_NAME).write_text("partial-broken", encoding="utf-8")
+        raise OSError("simulated disk full during promotion")
+
+    monkeypatch.setattr(Updater, "_promote_staging", staticmethod(_broken_promote))
+
+    with pytest.raises(OSError, match="simulated disk full"):
+        updater.install_update()
+
+    # Rollback must have restored the original files cleanly
+    assert (app_root / MAIN_EXECUTABLE_NAME).read_text(encoding="utf-8") == "old-exe-v1"
+    assert (internal_dir / "updater.exe").read_text(encoding="utf-8") == "updater-v1"
+    assert not paths.backup_internal_dir.exists()
+    assert not paths.backup_executable.exists()
+    assert not paths.staging_dir.exists()
 
 
 # ------------------------------------------------------------------

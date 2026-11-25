@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from it_rpa_suite.adapters.credentials_dpapi import CredentialStore
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+from it_rpa_suite.adapters.credentials_dpapi import resolve_login_credentials
 from it_rpa_suite.adapters.logger import get_logger
 from it_rpa_suite.adapters.result import (
     ServiceResult,
@@ -83,19 +85,28 @@ def login_portal_if_needed(
     credentials: dict[str, str] | None = None,
 ) -> None:
     """Authenticate on the Enterprise IT Portal if the login gate is visible."""
-    creds = credentials or CredentialStore().load()
-    username = creds.get("portal_account") or "it.admin"
-    password = creds.get("portal_password") or "Sandbox@2026"
-
     login_input = page.locator("#login-username")
     try:
-        if login_input.is_visible(timeout=800):
-            login_input.fill(username)
-            page.locator("#login-password").fill(password)
-            page.locator("#btn-login").click()
-            page.locator("#portal-workspace").wait_for(state="visible", timeout=5000)
-    except Exception:
+        login_visible = bool(login_input.is_visible(timeout=800))
+    except PlaywrightTimeoutError:
+        login_visible = False
+
+    if not login_visible:
         logger.debug("Enterprise Portal 已處於登入狀態")
+        return
+
+    username, password = resolve_login_credentials(
+        credentials,
+        account_keys=("portal_account",),
+        password_keys=("portal_password",),
+        default_account="it.admin",
+        default_password="Sandbox@2026",
+        system_name="企業入口網",
+    )
+    login_input.fill(username)
+    page.locator("#login-password").fill(password)
+    page.locator("#btn-login").click()
+    page.locator("#portal-workspace").wait_for(state="visible", timeout=5000)
 
 
 def select_searchable_employee(

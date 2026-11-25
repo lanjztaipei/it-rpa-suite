@@ -227,18 +227,96 @@ def test_onboarding_and_nac_validation_and_mailer_fallback() -> None:
     assert preview_nac_unlock_mode("100001")[0] == "單網卡 (Wired MAC)"
     assert preview_nac_unlock_mode("IT-300001")[0] == "雙網卡 (Wired + Wi-Fi MAC)"
 
-    # 5. Mailer graceful fallback
+    # 5. Mailer graceful fallback, HTML sanitization, BCC display & temp cleanup
+    from unittest.mock import MagicMock
+
+    import pytest
+
+    from it_rpa_suite.adapters.mailer import (
+        cleanup_preview_temp_files,
+        open_draft_in_browser,
+        sanitize_email_html,
+    )
+
+    dirty_html = (
+        '<table id="offboard-checklist-table"><tr>'
+        '<td onclick="alert(1)">EMP103</td>'
+        '<td><a href="javascript:alert(2)">Bad</a> '
+        '<a href="https://intranet.example/ok">Good</a></td>'
+        "</tr></table>"
+        "<script>window.pwned = true;</script>"
+        '<iframe src="https://evil.example"></iframe>'
+    )
+    sanitized = sanitize_email_html(dirty_html)
+    assert "<script>" not in sanitized
+    assert "window.pwned" not in sanitized
+    assert "<iframe" not in sanitized
+    assert "onclick" not in sanitized
+    assert "javascript:" not in sanitized
+    assert 'id="offboard-checklist-table"' in sanitized
+    assert "EMP103" in sanitized
+    assert 'href="https://intranet.example/ok"' in sanitized
+
     draft = compose_or_preview_email(
         to="iam.security@enterprise.local",
         subject="Test Offboarding",
-        html_body="<table><tr><td>EMP103</td></tr></table>",
+        html_body=dirty_html,
         cc="alex.chen@enterprise.local",
+        bcc="audit.log@enterprise.local",
         force_fallback=True,
     )
     assert draft.used_fallback is True
     rendered = render_standalone_email_html(draft)
     assert "iam.security@enterprise.local" in rendered
+    assert "audit.log@enterprise.local" in rendered
     assert "EMP103" in rendered
+    assert "<script>" not in rendered
+
+    # Verify open_draft_in_browser registers preview temp file for cleanup
+    mp = pytest.MonkeyPatch()
+    try:
+        mp.setattr("it_rpa_suite.adapters.mailer.webbrowser.open", MagicMock(return_value=True))
+        temp_file = open_draft_in_browser(draft)
+        assert temp_file.is_file()
+        cleanup_preview_temp_files()
+        assert not temp_file.exists()
+    finally:
+        mp.undo()
+
+
+def test_tool_sdk_tls_verification_defaults_to_strict(monkeypatch) -> None:
+    """Verify `tool_sdk.setup_browser` enforces TLS verification by default unless opted in."""
+    import sys
+    from unittest.mock import MagicMock
+
+    tools_dir = Path(__file__).resolve().parents[1] / "tools"
+    if str(tools_dir) not in sys.path:
+        sys.path.insert(0, str(tools_dir))
+    import tool_sdk
+
+    fake_context = MagicMock()
+    fake_context.new_page.return_value = MagicMock()
+    fake_browser = MagicMock()
+    fake_browser.new_context.return_value = fake_context
+    fake_pw = MagicMock()
+    fake_pw.chromium.launch.return_value = fake_browser
+    fake_sync_cm = MagicMock()
+    fake_sync_cm.start.return_value = fake_pw
+    monkeypatch.setattr(tool_sdk, "sync_playwright", lambda: fake_sync_cm)
+
+    # 1. Default -> ignore_https_errors must be False
+    monkeypatch.delenv("IT_SUITE_IGNORE_HTTPS_ERRORS", raising=False)
+    tool_sdk.setup_browser(headless=True)
+    assert fake_browser.new_context.call_args.kwargs["ignore_https_errors"] is False
+
+    # 2. Explicit env opt-in -> ignore_https_errors becomes True
+    monkeypatch.setenv("IT_SUITE_IGNORE_HTTPS_ERRORS", "true")
+    tool_sdk.setup_browser(headless=True)
+    assert fake_browser.new_context.call_args.kwargs["ignore_https_errors"] is True
+
+    # 3. Explicit argument overrides env
+    tool_sdk.setup_browser(headless=True, ignore_https_errors=False)
+    assert fake_browser.new_context.call_args.kwargs["ignore_https_errors"] is False
 
 
 def test_onboarding_offboarding_and_nac_end_to_end(tmp_path: Path) -> None:
