@@ -1,5 +1,11 @@
 # IT RPA Suite (IT 自動化助手)
 
+[![CI](https://github.com/lanjztaipei/it-rpa-suite/actions/workflows/ci.yml/badge.svg)](https://github.com/lanjztaipei/it-rpa-suite/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![Ruff](https://img.shields.io/badge/code%20style-ruff-261230?logo=ruff&logoColor=white)
+![Mypy](https://img.shields.io/badge/type%20check-mypy-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+
 以 Python 開發桌面自動化工具，將繁瑣的企業 IT 維運操作，轉化為高效率的自動化流程。
 
 專案由個人從零開始、建立最小可行產品（MVP），逐步演進為支援多名 IT 人員使用的 GUI 應用程式。
@@ -7,15 +13,15 @@
 ## 專案成果
 
 - 導入 3 個廠區，共 8 位 IT 人員實際使用
-- 每位使用者每月平均節省超過 1,200 分鐘
+- 每位使用者每月至少節省 1,200 分鐘
 
-## 主要技術
+## 核心技術
 
-- 網頁自動化（Playwright）、Windows 桌面控制（pywinauto、pywin32）
-- GUI 介面（Tkinter / ttk）、專屬執行緒分離、FIFO 任務佇列、瀏覽器延遲啟動（Lazy Initialization）
-- 跨系統資料擷取與自動化通知（Outlook COM 郵件草稿、內建 HTML 安全預覽降級）
-- 本機資料儲存（SQLite）、Windows DPAPI 憑證保護、設定檔原子寫入（Atomic Write）
-- 內建的本機 Mock HTTP Server、執行檔一鍵發布及三階段自我更新機制
+- **跨系統自動化**：以 Playwright 操作網頁系統，搭配 pywinauto 監聽來電通知，並透過 pywin32 串接 Outlook
+- **GUI 與背景執行**：以 Tkinter / ttk 打造現代化極簡介面，並將自動化任務獨立至專屬背景執行緒，避免畫面凍結
+- **資料與憑證保護**：帳密透過 Windows DPAPI 綁定本機帳號加密保存；設定檔採用原子寫入防止寫入毀損
+- **品質檢查與發佈**：結合 GitHub Actions 自動化品質檢查、開發者一鍵發佈流程與使用者一鍵更新機制
+- **離線驗證環境**：內建本機 Mock HTTP Server，無須連線企業內網即可進行離線體驗與自動化測試
 
 ---
 
@@ -183,12 +189,12 @@
 
 ---
 
-### 4.5 一鍵打包與自動發布
+### 4.5 一鍵打包與自動發佈
 
-專案提供完整的自動化編譯與發布腳本，無須手動拼湊 PyInstaller 指令：
+專案提供完整的自動化編譯與發佈腳本，無須手動拼湊 PyInstaller 指令：
 
-- **一鍵發布批次檔**：雙擊根目錄下的 `build_release.bat`，將自動呼叫 PowerShell 打包腳本。
-- **發布腳本流程（`scripts/build_release.ps1`）**：
+- **一鍵發佈批次檔**：雙擊根目錄下的 `build_release.bat`，將自動呼叫 PowerShell 打包腳本。
+- **發佈腳本流程（`scripts/build_release.ps1`）**：
   1. 檢查 `scripts/app.spec` 打包配置與 `tools/updater/updater.py` 原始碼。
   2. 先以單一執行檔模式（`--onefile`）編譯獨立更新器 `updater.exe`。
   3. 執行 `PyInstaller --noconfirm scripts/app.spec` 進行主程式單目錄（One-Folder）編譯，將預設設定檔（`assets/`）、更新器與 `tools/tool_sdk.py` 完整封裝至 `_internal/`。
@@ -239,7 +245,7 @@
 - 目標：在快速迭代的同時，逐步提升可用性，並逐漸實際融入個人日常工作使用
 - 成果：
   - 引入 OpenCV 圖像識別，處理部分無法直接控制的網頁操作
-  - 建立初次使用的初始化流程，並調整程式打包與發布方式，改善迭代效率
+  - 建立初次使用的初始化流程，並調整程式打包與發佈方式，改善迭代效率
   - 重構程式碼，改善執行效能與可維護性
 - 影響：
   - 開始具備實際使用價值，提升使用體驗，降低學習門檻
@@ -252,7 +258,7 @@
 - 耗時：40 天
 - 目標：工具進入多人使用階段，處理相容性、版本更新問題，並融入同事的建議
 - 成果：
-  - 新增自動發布、更新機制，降低版本維護與手動派發成本，不需要再頻繁溝通安裝步驟
+  - 新增自動發佈、更新機制，降低版本維護與手動派發成本，不需要再頻繁溝通安裝步驟
   - 支援跨系統資料擷取與分析，並依據結果自動撰寫 Outlook 草稿
   - 使用 pywinauto 監控電腦來電彈窗，並串接企業電話簿系統執行背景查詢
 - 影響：
@@ -294,7 +300,7 @@
 - 穩定性強化：
   - 建立核心流程的端對端測試，縮短版本驗證時間
   - 建立單點錯誤重試機制，減少偶發性失敗造成的流程中斷
-  - 主動提醒更新，並依據使用者目前的版本號執行對應的更新程序，提升版本發布效率與相容性
+  - 主動提醒更新，並依據使用者目前的版本號執行對應的更新程序，提升版本發佈效率與相容性
   - 逐漸把各項參數從程式碼裡面抽出成可輕鬆編輯的環境設定檔
 - 新人教育訓練：
   - 自動化程式本身就是最標準的 SOP 紀錄，能快速做成新人教材
@@ -345,7 +351,7 @@ it-rpa-suite/
 │
 ├── main.py                              # 主程式進入點：環境初始化與啟動引導
 ├── pyproject.toml                       # 專案套件依賴、打包與測試規範配置
-├── build_release.bat                    # 一鍵快速打包與發布批次檔
+├── build_release.bat                    # 一鍵快速打包與發佈批次檔
 │
 ├── scripts/                             # 打包與編譯腳本目錄
 │   ├── app.spec                         # PyInstaller 單目錄（onedir）打包規範配置檔
@@ -441,7 +447,7 @@ uv run pre-commit install
    - 確認視窗底部狀態列右側顯示本機沙盒運行網址（預設自動掛載於 `Sandbox: http://127.0.0.1:8000`）。
    - 切換至側邊欄「**設備借還與聯查**」，在資產編號欄位輸入範例編號 `300001`（或 `IT-300001`）加入清單，工號／單號欄位留白（自動判定為歸還與保管人聯查）並執行，驗證 Playwright 能否自動開啟 Edge 完成跨分頁反查與歸還準備。
 3. **能否順利打包與觸發三階段更新**
-   - 雙擊執行根目錄下的 `build_release.bat`（或執行 `powershell -ExecutionPolicy Bypass -File scripts/build_release.ps1`），確認可正常編譯並於 `released/ITRPASuite.zip` 產出發布包。
+   - 雙擊執行根目錄下的 `build_release.bat`（或執行 `powershell -ExecutionPolicy Bypass -File scripts/build_release.ps1`），確認可正常編譯並於 `released/ITRPASuite.zip` 產出發佈包。
    - 回到應用程式左側邊欄點擊「**檢查更新**」，驗證三階段自動更新流程是否可正常觸發並完成升級。
 
 #### 6.3.3 本機品質檢查指令（與 CI 保持一致）
