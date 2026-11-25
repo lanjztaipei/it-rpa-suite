@@ -19,6 +19,8 @@ State Machine Stages (`UpdateStage`):
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -87,6 +89,22 @@ class UpdatePaths:
     tool_sdk_source: Path
     tool_sdk_target: Path
     running_from_internal: bool
+
+    @property
+    def staging_dir(self) -> Path:
+        return self.app_root / ".update_staging"
+
+    @property
+    def backup_internal_dir(self) -> Path:
+        return self.app_root / "_internal.bak"
+
+    @property
+    def backup_executable(self) -> Path:
+        return self.app_root / f"{MAIN_EXECUTABLE_NAME}.bak"
+
+    @property
+    def source_sha256_file(self) -> Path:
+        return Path(f"{self.source_zip}.sha256")
 
     @classmethod
     def from_runtime(
@@ -206,9 +224,15 @@ class RetryPolicy:
 class Updater:
     """Executes the three-stage self-update state machine."""
 
-    def __init__(self, paths: UpdatePaths, sleep_fn: Callable[[float], None] = time.sleep) -> None:
+    def __init__(
+        self,
+        paths: UpdatePaths,
+        sleep_fn: Callable[[float], None] = time.sleep,
+        expected_sha256: str | None = None,
+    ) -> None:
         self.paths = paths
         self._sleep = sleep_fn
+        self._expected_sha256 = (expected_sha256 or "").strip() or None
 
     def run(self) -> UpdateStage:
         """Evaluate current stage and execute the corresponding state handler."""
@@ -271,35 +295,47 @@ class Updater:
         raise UpdateHandoff
 
     def install_update(self) -> None:
-        """Stage 2: Copy update ZIP, remove old core, extract safely, write updating marker, and hand off."""
+        """Stage 2: Validate ZIP & SHA-256 in staging, back up old core, promote with rollback, and hand off."""
         p = self.paths
         LOGGER.info("正在複製新版 ZIP (Stage 2)。")
         p.local_zip.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(p.source_zip, p.local_zip)
         target_version = p.local_zip.stat().st_mtime
 
-        LOGGER.info("正在清理舊核心程式。")
-        self._retry(
-            action=self._remove_old_core,
-            policy=RetryPolicy(attempts=10, delay_seconds=3),
-            description=f"清理舊程式，請確認 {MAIN_EXECUTABLE_NAME} 相關程序已關閉",
-        )
+        try:
+            expected_hash = self._resolve_expected_sha256()
+            if expected_hash is not None:
+                LOGGER.info("正在校驗新版 ZIP SHA-256 雜湊值。")
+                self._verify_sha256(p.local_zip, expected_hash)
 
-        LOGGER.info("正在安全解壓縮新版 ZIP。")
-        self._extract_zip_safely(p.local_zip, p.app_root)
-        p.data_dir.mkdir(parents=True, exist_ok=True)
-        self._write_text_atomic(p.updating_version_file, str(target_version))
-        p.local_zip.unlink(missing_ok=True)
-        LOGGER.info("已鎖定本次更新版本：%s", target_version)
+            LOGGER.info("正在暫存區安全驗證並解壓縮新版 ZIP。")
+            self._prepare_staging_dir(p.staging_dir)
+            self._extract_zip_safely(p.local_zip, p.staging_dir)
+            self._validate_staged_release(p.staging_dir)
 
-        if not p.internal_updater.is_file():
-            fallback_updater_exe = p.internal_dir / "updater.exe"
-            if fallback_updater_exe.is_file():
-                target_internal_updater = fallback_updater_exe
-            else:
-                raise UpdateError(f"新版 updater 不存在：{p.internal_updater}")
-        else:
-            target_internal_updater = p.internal_updater
+            LOGGER.info("驗證通過，正在備份舊核心程式。")
+            self._retry(
+                action=self._backup_old_core,
+                policy=RetryPolicy(attempts=10, delay_seconds=3),
+                description=f"備份舊程式，請確認 {MAIN_EXECUTABLE_NAME} 相關程序已關閉",
+            )
+
+            try:
+                LOGGER.info("正在切換為新版核心程式。")
+                self._promote_staging(p.staging_dir, p.app_root)
+                target_internal_updater = self._resolve_promoted_internal_updater()
+            except Exception as exc:
+                LOGGER.error("切換新版核心失敗，正在自動回滾還原舊版程式：%s", exc)
+                self._rollback_old_core()
+                raise
+
+            p.data_dir.mkdir(parents=True, exist_ok=True)
+            self._write_text_atomic(p.updating_version_file, str(target_version))
+            LOGGER.info("已鎖定本次更新版本：%s", target_version)
+        finally:
+            p.local_zip.unlink(missing_ok=True)
+            if p.staging_dir.exists():
+                shutil.rmtree(p.staging_dir, ignore_errors=True)
 
         self._sleep(2)
         self._launch(target_internal_updater, p.internal_dir)
@@ -307,7 +343,7 @@ class Updater:
         raise UpdateHandoff
 
     def finalize_update(self) -> None:
-        """Stage 3: Commit `data/version.txt`, remove safe-zone copy, and sync `tools/tool_sdk.py`."""
+        """Stage 3: Commit `data/version.txt`, clean backups/safe-zone copy, and sync `tools/tool_sdk.py`."""
         p = self.paths
         LOGGER.info("正在完成更新收尾作業 (Stage 3)。")
         self._sleep(1)
@@ -326,6 +362,7 @@ class Updater:
             policy=RetryPolicy(attempts=10, delay_seconds=1),
             description="刪除安全區 updater",
         )
+        self._cleanup_backups()
 
         self._initialize_tools_directory()
         LOGGER.info("更新成功，版本已更新為：%s", target_version)
@@ -336,6 +373,14 @@ class Updater:
         for candidate in ("updater.exe", "updater.py"):
             (p.app_root / candidate).unlink(missing_ok=True)
 
+    def _cleanup_backups(self) -> None:
+        p = self.paths
+        if p.backup_internal_dir.exists():
+            shutil.rmtree(p.backup_internal_dir, ignore_errors=True)
+        p.backup_executable.unlink(missing_ok=True)
+        if p.staging_dir.exists():
+            shutil.rmtree(p.staging_dir, ignore_errors=True)
+
     def _handle_no_update(self) -> None:
         LOGGER.info("目前已是最新版本，無需更新。")
 
@@ -344,6 +389,101 @@ class Updater:
         if p.internal_dir.is_dir():
             shutil.rmtree(p.internal_dir)
         p.application_executable.unlink(missing_ok=True)
+
+    def _backup_old_core(self) -> None:
+        p = self.paths
+        if p.backup_internal_dir.exists():
+            shutil.rmtree(p.backup_internal_dir)
+        p.backup_executable.unlink(missing_ok=True)
+
+        if p.internal_dir.is_dir():
+            p.internal_dir.rename(p.backup_internal_dir)
+        if p.application_executable.is_file():
+            try:
+                p.application_executable.rename(p.backup_executable)
+            except OSError:
+                # Restore _internal backup if main executable is still locked
+                if p.backup_internal_dir.is_dir() and not p.internal_dir.exists():
+                    p.backup_internal_dir.rename(p.internal_dir)
+                raise
+
+    def _rollback_old_core(self) -> None:
+        p = self.paths
+        if p.internal_dir.exists():
+            shutil.rmtree(p.internal_dir, ignore_errors=True)
+        p.application_executable.unlink(missing_ok=True)
+
+        if p.backup_internal_dir.is_dir():
+            p.backup_internal_dir.rename(p.internal_dir)
+        if p.backup_executable.is_file():
+            p.backup_executable.rename(p.application_executable)
+
+    @staticmethod
+    def _prepare_staging_dir(staging_dir: Path) -> None:
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir)
+        staging_dir.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _validate_staged_release(staging_dir: Path) -> None:
+        has_exe = (staging_dir / MAIN_EXECUTABLE_NAME).is_file()
+        has_internal = (staging_dir / "_internal").is_dir()
+        if not has_exe and not has_internal:
+            raise UpdateError(
+                f"更新壓縮包內容異常，缺少 {MAIN_EXECUTABLE_NAME} 或 _internal 目錄。"
+            )
+
+    @staticmethod
+    def _promote_staging(staging_dir: Path, app_root: Path) -> None:
+        for item in staging_dir.iterdir():
+            target = app_root / item.name
+            if item.is_dir():
+                if target.exists():
+                    shutil.copytree(item, target, dirs_exist_ok=True)
+                    shutil.rmtree(item)
+                else:
+                    shutil.move(str(item), str(target))
+            else:
+                if target.is_file():
+                    target.unlink()
+                shutil.move(str(item), str(target))
+
+    def _resolve_promoted_internal_updater(self) -> Path:
+        p = self.paths
+        if p.internal_updater.is_file():
+            return p.internal_updater
+        fallback_updater_exe = p.internal_dir / "updater.exe"
+        if fallback_updater_exe.is_file():
+            return fallback_updater_exe
+        raise UpdateError(f"新版 updater 不存在：{p.internal_updater}")
+
+    def _resolve_expected_sha256(self) -> str | None:
+        if self._expected_sha256:
+            return self._expected_sha256
+        sidecar = self.paths.source_sha256_file
+        if sidecar.is_file():
+            raw = sidecar.read_text(encoding="utf-8").strip()
+            if not raw:
+                raise UpdateError(f"SHA-256 校驗檔內容為空：{sidecar}")
+            return raw.split()[0]
+        return None
+
+    @staticmethod
+    def _compute_sha256(file_path: Path) -> str:
+        digest = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                digest.update(chunk)
+        return digest.hexdigest().lower()
+
+    @classmethod
+    def _verify_sha256(cls, zip_path: Path, expected_sha256: str) -> None:
+        expected = expected_sha256.strip().lower()
+        if len(expected) != 64 or any(ch not in "0123456789abcdef" for ch in expected):
+            raise UpdateError(f"無效的 SHA-256 雜湊格式：{expected_sha256}")
+        actual = cls._compute_sha256(zip_path)
+        if not hmac.compare_digest(actual, expected):
+            raise UpdateError(f"更新檔 SHA-256 校驗失敗：預期 {expected}，實際 {actual}")
 
     def _initialize_tools_directory(self) -> None:
         p = self.paths
@@ -375,6 +515,8 @@ class Updater:
         )
         env = os.environ.copy()
         env["IT_SUITE_UPDATE_ZIP"] = str(self.paths.source_zip)
+        if self._expected_sha256:
+            env["IT_SUITE_UPDATE_SHA256"] = self._expected_sha256
         subprocess.Popen(cmd, cwd=str(cwd), env=env)
 
     @staticmethod
@@ -411,23 +553,26 @@ class Updater:
     def _extract_zip_safely(zip_path: Path, destination: Path) -> None:
         """Validate all ZIP entries before extraction to prevent Zip Slip path traversal."""
         destination = destination.resolve()
-        with zipfile.ZipFile(zip_path, "r") as archive:
-            for member in archive.infolist():
-                raw_name = member.filename
-                normalized = raw_name.replace("\\", "/")
-                member_obj = Path(normalized)
-                if member_obj.is_absolute() or (
-                    normalized.startswith("/") or ":" in member_obj.drive
-                ):
-                    raise UpdateError(f"ZIP 內含不安全絕對路徑：{raw_name}")
+        try:
+            with zipfile.ZipFile(zip_path, "r") as archive:
+                for member in archive.infolist():
+                    raw_name = member.filename
+                    normalized = raw_name.replace("\\", "/")
+                    member_obj = Path(normalized)
+                    if member_obj.is_absolute() or (
+                        normalized.startswith("/") or ":" in member_obj.drive
+                    ):
+                        raise UpdateError(f"ZIP 內含不安全絕對路徑：{raw_name}")
 
-                member_path = (destination / normalized).resolve()
-                try:
-                    member_path.relative_to(destination)
-                except ValueError as exc:
-                    raise UpdateError(f"ZIP 內含不安全路徑：{raw_name}") from exc
+                    member_path = (destination / normalized).resolve()
+                    try:
+                        member_path.relative_to(destination)
+                    except ValueError as exc:
+                        raise UpdateError(f"ZIP 內含不安全路徑：{raw_name}") from exc
 
-            archive.extractall(destination)
+                archive.extractall(destination)
+        except zipfile.BadZipFile as exc:
+            raise UpdateError(f"ZIP 檔案損毀或格式無效：{zip_path}") from exc
 
     def _retry(
         self,
@@ -477,6 +622,27 @@ def resolve_source_zip_arg(cli_args: list[str] | None = None) -> Path | None:
     return None
 
 
+def resolve_expected_sha256_arg(cli_args: list[str] | None = None) -> str | None:
+    """Resolve optional expected SHA-256 hash from CLI (`--sha256`) or environment variable."""
+    parser = argparse.ArgumentParser(description="IT RPA Suite Three-Stage Updater")
+    parser.add_argument(
+        "--sha256",
+        dest="sha256",
+        default=None,
+        help="Optional expected SHA-256 checksum for the update package ZIP",
+    )
+    parsed, _ = parser.parse_known_args(cli_args)
+
+    if parsed.sha256:
+        return str(parsed.sha256).strip()
+
+    env_sha = os.environ.get("IT_SUITE_UPDATE_SHA256", "").strip()
+    if env_sha:
+        return env_sha
+
+    return None
+
+
 def configure_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -494,8 +660,9 @@ def main(cli_args: list[str] | None = None) -> int:
     configure_logging()
 
     source_zip_override = resolve_source_zip_arg(cli_args)
+    expected_sha256 = resolve_expected_sha256_arg(cli_args)
     paths = UpdatePaths.from_runtime(source_zip=source_zip_override)
-    updater = Updater(paths)
+    updater = Updater(paths, expected_sha256=expected_sha256)
 
     try:
         updater.run()

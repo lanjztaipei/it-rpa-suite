@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 # 以 $PSScriptRoot 推導專案根目錄，絕不包含任何個人電腦絕對路徑
 $ScriptDir = $PSScriptRoot
@@ -107,6 +107,11 @@ try {
     if (-not (Test-Path -LiteralPath $TargetZip -PathType Leaf)) {
         throw "Release zip was not created: $TargetZip"
     }
+
+    $TargetSha256File = "$TargetZip.sha256"
+    $ZipHash = (Get-FileHash -LiteralPath $TargetZip -Algorithm SHA256).Hash.ToLowerInvariant()
+    [System.IO.File]::WriteAllText($TargetSha256File, "$ZipHash  ITRPASuite.zip`n")
+    Write-Host "Generated SHA-256 checksum: $TargetSha256File"
 
     Write-Host "Step 7: Clean local build and dist artifacts"
 
