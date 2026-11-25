@@ -12,8 +12,9 @@ State Machine Stages (`UpdateStage`):
    and raises `UpdateHandoff`.
 3. `IN_PROGRESS` (`finalize_update`):
    Running from the new `_internal/`, validates `data/updating_version.txt`, atomically writes
-   `data/version.txt`, removes `data/updating_version.txt` and the safe-zone updater copy, and
-   synchronizes `_internal/tools/tool_sdk.py` to `tools/tool_sdk.py`.
+   `data/version.txt`, removes `data/updating_version.txt` and the safe-zone updater copy,
+   synchronizes `_internal/tools/tool_sdk.py` to `tools/tool_sdk.py`, then relaunches
+   `ITRPASuite.exe` detached and exits without pausing so the console window closes automatically.
 """
 
 from __future__ import annotations
@@ -229,10 +230,12 @@ class Updater:
         paths: UpdatePaths,
         sleep_fn: Callable[[float], None] = time.sleep,
         expected_sha256: str | None = None,
+        no_relaunch: bool = False,
     ) -> None:
         self.paths = paths
         self._sleep = sleep_fn
         self._expected_sha256 = (expected_sha256 or "").strip() or None
+        self._no_relaunch = bool(no_relaunch)
 
     def run(self) -> UpdateStage:
         """Evaluate current stage and execute the corresponding state handler."""
@@ -507,16 +510,59 @@ class Updater:
         else:
             LOGGER.info("已複製初始 tools/tool_sdk.py：%s", p.tool_sdk_target)
 
+    @staticmethod
+    def _build_clean_env(*, strip_updater_vars: bool = False) -> dict[str, str]:
+        """Return a copy of `os.environ` stripped of PyInstaller bootloader variables."""
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if key != "_MEIPASS2" and not key.startswith("_PYI_")
+        }
+        if strip_updater_vars:
+            for key in (
+                "IT_SUITE_UPDATE_ZIP",
+                "IT_SUITE_UPDATE_SHA256",
+                "IT_SUITE_UPDATER_NO_RELAUNCH",
+            ):
+                env.pop(key, None)
+        return env
+
+    def relaunch_application(self) -> bool:
+        """Start the updated main application detached from the updater console."""
+        executable = self.paths.application_executable
+        if not executable.is_file():
+            LOGGER.warning("找不到主程式執行檔，略過自動重新啟動：%s", executable)
+            return False
+
+        creation_flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+            subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+        )
+        env = self._build_clean_env(strip_updater_vars=True)
+        LOGGER.info("正在重新啟動主程式：%s", executable)
+        subprocess.Popen(
+            [str(executable)],
+            cwd=str(self.paths.app_root),
+            env=env,
+            creationflags=creation_flags,
+            close_fds=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+
     def _launch(self, executable: Path, cwd: Path) -> None:
         cmd = (
             [sys.executable, str(executable)]
             if executable.suffix.casefold() == ".py"
             else [str(executable)]
         )
-        env = os.environ.copy()
+        env = self._build_clean_env(strip_updater_vars=False)
         env["IT_SUITE_UPDATE_ZIP"] = str(self.paths.source_zip)
         if self._expected_sha256:
             env["IT_SUITE_UPDATE_SHA256"] = self._expected_sha256
+        if self._no_relaunch:
+            env["IT_SUITE_UPDATER_NO_RELAUNCH"] = "1"
         subprocess.Popen(cmd, cwd=str(cwd), env=env)
 
     @staticmethod
@@ -643,6 +689,24 @@ def resolve_expected_sha256_arg(cli_args: list[str] | None = None) -> str | None
     return None
 
 
+def resolve_no_relaunch_arg(cli_args: list[str] | None = None) -> bool:
+    """Resolve whether automatic main-app relaunch is disabled via CLI or env var."""
+    parser = argparse.ArgumentParser(description="IT RPA Suite Three-Stage Updater")
+    parser.add_argument(
+        "--no-relaunch",
+        dest="no_relaunch",
+        action="store_true",
+        default=False,
+        help="Do not automatically relaunch ITRPASuite.exe after a successful update",
+    )
+    parsed, _ = parser.parse_known_args(cli_args)
+    if parsed.no_relaunch:
+        return True
+
+    env_flag = os.environ.get("IT_SUITE_UPDATER_NO_RELAUNCH", "").strip().lower()
+    return env_flag in {"1", "true", "yes", "on"}
+
+
 def configure_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -661,11 +725,16 @@ def main(cli_args: list[str] | None = None) -> int:
 
     source_zip_override = resolve_source_zip_arg(cli_args)
     expected_sha256 = resolve_expected_sha256_arg(cli_args)
+    no_relaunch = resolve_no_relaunch_arg(cli_args)
     paths = UpdatePaths.from_runtime(source_zip=source_zip_override)
-    updater = Updater(paths, expected_sha256=expected_sha256)
+    updater = Updater(
+        paths,
+        expected_sha256=expected_sha256,
+        no_relaunch=no_relaunch,
+    )
 
     try:
-        updater.run()
+        stage = updater.run()
     except UpdateHandoff:
         LOGGER.info("更新工作已交棒，目前 updater 程序立即結束。")
         return 0
@@ -673,6 +742,17 @@ def main(cli_args: list[str] | None = None) -> int:
         LOGGER.exception("更新失敗：%s", exc)
         pause("更新發生錯誤，按 Enter 結束...")
         return 1
+
+    if stage == UpdateStage.IN_PROGRESS:
+        if not no_relaunch:
+            try:
+                updater.relaunch_application()
+            except OSError as exc:
+                LOGGER.exception("更新已完成，但重新啟動主程式失敗：%s", exc)
+                pause("更新已完成，但重新啟動主程式失敗，按 Enter 結束...")
+                return 1
+        LOGGER.info("更新流程全部完成，更新視窗即將自動關閉。")
+        return 0
 
     pause("執行完成，按 Enter 結束...")
     return 0

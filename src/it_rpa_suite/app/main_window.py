@@ -5,8 +5,10 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 import tkinter as tk
 from collections.abc import Callable
+from pathlib import Path
 from tkinter import messagebox, ttk
 from typing import Any
 
@@ -16,6 +18,12 @@ from it_rpa_suite.adapters.credentials_dpapi import CredentialStore
 from it_rpa_suite.adapters.logger import get_logger
 from it_rpa_suite.adapters.paths import AppPaths, get_app_paths
 from it_rpa_suite.adapters.storage import AppStorage
+from it_rpa_suite.adapters.update_checker import (
+    UpdateCheckResult,
+    UpdateCheckStatus,
+    check_for_updates,
+    format_timestamp,
+)
 from it_rpa_suite.app.theme import FONT_FAMILY, ThemeManager, scale
 from it_rpa_suite.app.widgets import (
     ModernScrollbar,
@@ -53,6 +61,7 @@ class MainWindow:
 
         self.current_view: tk.Widget | None = None
         self.closing = False
+        self._checking_update = False
 
         is_dark = self.storage.get_dark_mode()
         self.theme = ThemeManager(is_dark_mode=is_dark, initial_scale=1.5)
@@ -483,36 +492,121 @@ class MainWindow:
         return True
 
     def run_updater(self) -> None:
-        updater_exe = self.paths.base_dir / "_internal" / "updater.exe"
-        updater_py = self.paths.tools_dir / "updater" / "updater.py"
+        if self._checking_update or self.closing:
+            return
 
-        if not updater_exe.exists() and not updater_py.exists():
+        self._checking_update = True
+        self.set_global_status("正在檢查更新...")
+
+        configured_zip = ""
+        if hasattr(self, "storage") and self.storage is not None:
+            configured_zip = str(self.storage.load_settings().get("update_source_zip", "")).strip()
+
+        def _worker() -> None:
+            result = check_for_updates(self.paths, configured_zip=configured_zip or None)
+            if self.closing:
+                return
+            try:
+                self.root.after(0, lambda: self._handle_update_check_result(result))
+            except tk.TclError:
+                self._checking_update = False
+
+        threading.Thread(
+            target=_worker,
+            name="UpdateCheckThread",
+            daemon=True,
+        ).start()
+
+    def _handle_update_check_result(self, result: UpdateCheckResult) -> None:
+        self._checking_update = False
+        if self.closing:
+            return
+        self.update_browser_status()
+
+        if result.status == UpdateCheckStatus.UP_TO_DATE:
             messagebox.showinfo(
                 "檢查更新",
-                "找不到更新程式（updater.exe 或 tools/updater/updater.py）。",
+                (
+                    f"目前已是最新版本（v{__version__}），無需更新。\n\n"
+                    f"套件時間：{format_timestamp(result.source_timestamp)}"
+                ),
                 parent=self.root,
             )
             return
 
+        if result.status == UpdateCheckStatus.SOURCE_NOT_FOUND:
+            messagebox.showwarning(
+                "檢查更新",
+                (
+                    f"找不到更新來源壓縮檔，目前無法檢查更新：\n{result.source_zip}\n\n"
+                    "請確認網路磁碟或 data/settings.json 中的 update_source_zip 路徑設定。"
+                ),
+                parent=self.root,
+            )
+            return
+
+        if result.status == UpdateCheckStatus.ERROR:
+            messagebox.showerror(
+                "檢查更新失敗",
+                f"檢查更新時發生錯誤：\n{result.error_message or '未知錯誤'}",
+                parent=self.root,
+            )
+            return
+
+        updater_exe = self.paths.base_dir / "_internal" / "updater.exe"
+        updater_py = self.paths.tools_dir / "updater" / "updater.py"
+        if not updater_exe.exists() and not updater_py.exists():
+            messagebox.showwarning(
+                "發現新版本",
+                (
+                    "偵測到可用的更新，但找不到更新程式"
+                    "（_internal/updater.exe 或 tools/updater/updater.py）。"
+                ),
+                parent=self.root,
+            )
+            return
+
+        if result.status == UpdateCheckStatus.UPDATE_PENDING:
+            title = "完成待處理更新"
+            message = "偵測到前次更新尚未完成收尾作業。\n\n立即更新將關閉本程式與相關自動化分頁，是否立即繼續？"
+        elif result.status == UpdateCheckStatus.VERSION_MISSING:
+            title = "偵測到更新套件"
+            message = (
+                f"目前找不到本機版本紀錄（data/version.txt），偵測到更新套件"
+                f"（時間：{format_timestamp(result.source_timestamp)}）。\n\n"
+                "立即更新將關閉本程式，是否立即更新？"
+            )
+        else:
+            title = "發現新版本"
+            message = (
+                "偵測到較新的更新版本！\n\n"
+                f"目前版本時間：{format_timestamp(result.installed_timestamp)}\n"
+                f"最新套件時間：{format_timestamp(result.source_timestamp)}\n\n"
+                "立即更新將關閉本程式，是否立即更新？"
+            )
+
         if not show_confirm_dialog(
             parent=self.root,
-            title="檢查更新",
-            message="即將關閉程式並執行更新檢查，是否繼續？",
-            confirm_text="是",
-            cancel_text="否",
+            title=title,
+            message=message,
+            confirm_text="立即更新",
+            cancel_text="稍後再說",
             sf=self.scale_factor,
         ):
             return
 
+        self._launch_updater(result.source_zip, updater_exe, updater_py)
+
+    def _launch_updater(
+        self,
+        source_zip: Path,
+        updater_exe: Path,
+        updater_py: Path,
+    ) -> None:
         try:
             creation_flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
             env = os.environ.copy()
-            configured_zip = ""
-            if hasattr(self, "storage") and self.storage is not None:
-                configured_zip = str(
-                    self.storage.load_settings().get("update_source_zip", "")
-                ).strip()
-            env["IT_SUITE_UPDATE_ZIP"] = str(self.paths.get_update_zip_path(configured_zip or None))
+            env["IT_SUITE_UPDATE_ZIP"] = str(source_zip)
 
             if updater_exe.exists():
                 subprocess.Popen(

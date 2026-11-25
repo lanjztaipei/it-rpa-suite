@@ -99,6 +99,14 @@ class AppPaths:
         return self.data_dir / "ticket_templates.json"
 
     @property
+    def version_file(self) -> Path:
+        return self.data_dir / "version.txt"
+
+    @property
+    def updating_version_file(self) -> Path:
+        return self.data_dir / "updating_version.txt"
+
+    @property
     def tools_dir(self) -> Path:
         return self.base_dir / "tools"
 
