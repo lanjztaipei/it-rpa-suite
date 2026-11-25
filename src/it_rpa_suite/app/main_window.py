@@ -11,6 +11,7 @@ from tkinter import messagebox, ttk
 from typing import Any
 
 from it_rpa_suite import __version__
+from it_rpa_suite.adapters.browser_worker import get_slow_mo_ms
 from it_rpa_suite.adapters.credentials_dpapi import CredentialStore
 from it_rpa_suite.adapters.logger import get_logger
 from it_rpa_suite.adapters.paths import AppPaths, get_app_paths
@@ -94,7 +95,13 @@ class MainWindow:
     # ------------------------------------------------------------------
     def _configure_root(self) -> None:
         root = self.root
-        root.title("IT RPA Suite")
+        slow_mo_ms = get_slow_mo_ms()
+        title = (
+            f"IT RPA Suite [教學／展示慢速模式 {slow_mo_ms:.0f}ms]"
+            if slow_mo_ms > 0
+            else "IT RPA Suite"
+        )
+        root.title(title)
         root.configure(background=self.colors["background"])
         root.update_idletasks()
 

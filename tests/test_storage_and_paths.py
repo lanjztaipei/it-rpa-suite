@@ -236,3 +236,36 @@ def test_mock_server_port_fallback_when_occupied() -> None:
         sandbox.stop()
         wildcard_sock.close()
         dummy_http.server_close()
+
+
+def test_slow_mo_env_resolution_for_worker_and_tool_sdk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `IT_SUITE_SLOW_MO` parsing, invalid fallback, and BrowserSession propagation."""
+    from it_rpa_suite.adapters.browser_worker import (
+        AutomationWorker,
+        BrowserSession,
+        get_slow_mo_ms,
+    )
+
+    tools_dir = Path(__file__).resolve().parents[1] / "tools"
+    if str(tools_dir) not in sys.path:
+        sys.path.insert(0, str(tools_dir))
+    import tool_sdk
+
+    monkeypatch.delenv("IT_SUITE_SLOW_MO", raising=False)
+    assert get_slow_mo_ms() == 0.0
+    assert tool_sdk.get_slow_mo_ms() == 0.0
+    assert BrowserSession(headless=True).slow_mo == 0.0
+
+    monkeypatch.setenv("IT_SUITE_SLOW_MO", "450")
+    assert get_slow_mo_ms() == 450.0
+    assert tool_sdk.get_slow_mo_ms() == 450.0
+    assert BrowserSession(headless=True).slow_mo == 450.0
+    assert BrowserSession(headless=True, slow_mo=0).slow_mo == 0.0
+    assert AutomationWorker(headless=True, slow_mo=600).slow_mo == 600.0
+
+    for bad_value in ("-100", "not-a-number"):
+        monkeypatch.setenv("IT_SUITE_SLOW_MO", bad_value)
+        assert get_slow_mo_ms() == 0.0
+        assert tool_sdk.get_slow_mo_ms() == 0.0

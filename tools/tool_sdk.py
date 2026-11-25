@@ -216,12 +216,25 @@ def should_ignore_https_errors() -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def get_slow_mo_ms(default: float = 0.0) -> float:
+    """Resolve Playwright `slow_mo` delay in milliseconds from `IT_SUITE_SLOW_MO`."""
+    raw = os.environ.get("IT_SUITE_SLOW_MO", "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value >= 0 else default
+
+
 def setup_browser(
     headless: bool = False,
     downloads_path: str | None = None,
     dialog_action: str | Callable[[Any], None] | None = "accept",
     default_timeout_ms: int = 30000,
     ignore_https_errors: bool | None = None,
+    slow_mo: float | None = None,
 ) -> tuple[Any, Any, Any, Any]:
     """Launch Microsoft Edge (with fallback to Chromium) and return `(playwright, browser, context, page)`."""
     playwright = sync_playwright().start()
@@ -229,6 +242,7 @@ def setup_browser(
     ignore_https = (
         should_ignore_https_errors() if ignore_https_errors is None else bool(ignore_https_errors)
     )
+    resolved_slow_mo = get_slow_mo_ms() if slow_mo is None else max(0.0, float(slow_mo))
 
     try:
         browser = playwright.chromium.launch(
@@ -236,12 +250,14 @@ def setup_browser(
             headless=headless,
             args=launch_args,
             downloads_path=downloads_path,
+            slow_mo=resolved_slow_mo,
         )
     except Exception:
         browser = playwright.chromium.launch(
             headless=headless,
             args=launch_args,
             downloads_path=downloads_path,
+            slow_mo=resolved_slow_mo,
         )
 
     context_kwargs: dict[str, Any] = {
