@@ -25,10 +25,10 @@ CALL_WINDOW_KEYWORDS = (
 )
 
 SAMPLE_CALLER_EXTENSIONS = (
-    ("50211", "陳建宏 (Alex Chen) — 雲端基礎架構部"),
-    ("50212", "林雅婷 (Irene Lin) — 數位產品研發部"),
-    ("50213", "王柏翰 (Brian Wang) — 資訊安全管理部"),
-    ("50214", "張心怡 (Claire Chang) — 企業應用服務部"),
+    "50211",
+    "50212",
+    "50213",
+    "50214",
 )
 
 _mock_call_cycle_index = 0
@@ -295,13 +295,10 @@ def spawn_mock_incoming_call(
         _active_mock_call_window = None
 
     if caller_ext is None:
-        ext, hint_label = SAMPLE_CALLER_EXTENSIONS[
-            _mock_call_cycle_index % len(SAMPLE_CALLER_EXTENSIONS)
-        ]
+        ext = SAMPLE_CALLER_EXTENSIONS[_mock_call_cycle_index % len(SAMPLE_CALLER_EXTENSIONS)]
         _mock_call_cycle_index += 1
     else:
         ext = caller_ext.strip()
-        hint_label = f"測試分機 {ext}"
 
     top_root = root.winfo_toplevel()
     sf = float(getattr(top_root, "scale_factor", 1.5))
@@ -349,7 +346,7 @@ def spawn_mock_incoming_call(
 
     tk.Label(
         container,
-        text=f"來電自 {ext}  （沙盒對應：{hint_label}）",
+        text=f"來電自 {ext}",
         font=(FONT_FAMILY, s(9)),
         foreground="#94A3B8",
         background="#0F172A",
