@@ -44,42 +44,6 @@ uv run pip-audit
 
 ---
 
-## 快速導覽目錄
-
-- [1. 專案概述](#section-1)
-- [2. 里程碑功能](#section-2)
-  - [2.1 專案的起源：設備借用、歸還與保管人反查](#section-2-1)
-  - [2.2 鉤子功能（Hook Feature）：新人到職出庫、離職全套辦理](#section-2-2)
-  - [2.3 加速開發與團隊賦能：腳本工具箱](#section-2-3)
-  - [2.4 圖形化介面最受益的功能：自動化開立工單](#section-2-4)
-- [3. 重點功能](#section-3)
-  - [3.1 背景來電即時身分識別](#section-3-1)
-  - [3.2 Playwright 專屬執行緒與序列化任務佇列](#section-3-2)
-  - [3.3 內建 Mock Server](#section-3-3)
-  - [3.4 三階段自動更新機制](#section-3-4)
-- [4. 其他功能](#section-4)
-  - [4.1 量化效益儀表板](#section-4-1)
-  - [4.2 老式 frameset / iframe 網站：網路開通模組](#section-4-2)
-  - [4.3 Outlook 郵件草稿與內建 HTML 預覽降級](#section-4-3)
-  - [4.4 Windows DPAPI 本機安全憑證庫](#section-4-4)
-  - [4.5 一鍵打包與自動發布](#section-4-5)
-  - [4.6 自適應視窗縮放與深淺色主題](#section-4-6)
-- [5. 專案演進與版本歷程](#section-5)
-  - [ver1：最小可行產品驗證（MVP）](#section-5-1)
-  - [ver2：改善使用體驗、增加迭代效率](#section-5-2)
-  - [ver3：實務部署、多人使用](#section-5-3)
-  - [ver4：模組化、工程化重構](#section-5-4)
-  - [ver5：轉型 GUI 與 UI/UX 現代化](#section-5-5)
-  - [未來規劃：穩定性強化、新人教育訓練、引入數據分析與 AI 應用](#section-5-6)
-- [6. 系統架構與開發指南](#section-6)
-  - [6.1 系統總體架構圖](#section-6-1)
-  - [6.2 專案目錄結構](#section-6-2)
-  - [6.3 接手開發指南](#section-6-3)
-    - [6.3.1 建議開發環境](#section-6-3-1)
-    - [6.3.2 啟動與基本驗證](#section-6-3-2)
-
-<a id="section-1"></a>
-
 ## 1. 專案概述
 
 在大型企業中，IT 日常維運常面臨以下挑戰：
@@ -92,11 +56,7 @@ uv run pip-audit
 
 ---
 
-<a id="section-2"></a>
-
 ## 2. 里程碑功能
-
-<a id="section-2-1"></a>
 
 ### 2.1 專案的起源：設備借用、歸還與保管人反查
 
@@ -118,8 +78,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-2-2"></a>
-
 ### 2.2 鉤子功能（Hook Feature）：新人到職出庫、離職全套辦理
 
 - **特點**：最好學、最實用、最吸引人的模組（離職辦理時間從 15 分鐘降至 5 分鐘）。
@@ -137,8 +95,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-2-3"></a>
-
 ### 2.3 加速開發與團隊賦能：腳本工具箱
 
 - **背景**：有些自動化模組還在概念驗證／測試階段，或是屬於特定專案、只有少數人在使用的情境，暫時不適合直接整合進主程式核心介面中。
@@ -151,8 +107,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-2-4"></a>
-
 ### 2.4 圖形化介面最受益的功能：自動化開立工單
 
 - **特點**：實務上累積節省最多時間的功能，並且大幅提升部門的帳面績效。
@@ -163,11 +117,7 @@ uv run pip-audit
 
 ---
 
-<a id="section-3"></a>
-
 ## 3. 重點功能
-
-<a id="section-3-1"></a>
 
 ### 3.1 背景來電即時身分識別
 
@@ -180,8 +130,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-3-2"></a>
-
 ### 3.2 Playwright 專屬執行緒與序列化任務佇列
 
 - **背景**：若每次執行自動化功能都要重新啟動瀏覽器並重新登入各系統，不僅等待時間長，視窗反覆開關也會嚴重干擾日常作業；此外，Playwright Sync API 與底層 greenlet 綁定單一作業系統執行緒，若從不同執行緒直接呼叫會引發執行緒親和性錯誤，而在 Tkinter 主執行緒執行則會造成 GUI 凍結。
@@ -192,8 +140,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-3-3"></a>
-
 ### 3.3 內建 Mock Server
 
 - **背景**：在本地開發、自動化測試或專案展示時，執行環境無法（也不應）連線至企業內部真實生產網路。
@@ -202,8 +148,6 @@ uv run pip-audit
   2. 完整模擬本專案自動化流程所需的 8 大企業系統端點——包含**資產出庫**（`/portal/assets/issue`）、**資產歸還**（`/portal/assets/return`）、**資產查詢與新分頁明細**（`/portal/assets/search`、`/portal/assets/detail`）、**企業員工電話簿與 API**（`/portal/directory`、`/api/directory`）、**人事離職系統**（`/portal/hr/offboarding`）、**電信分機管理**（`/portal/telecom/extensions`）、**NAC 雙層 iframe 網路控制台**（`/network/console`）與 **IT 服務台工單系統**（`/servicedesk/new`），使所有自動化流程皆可在離線環境中 100% 端對端獨立運作與驗證。
 
 ---
-
-<a id="section-3-4"></a>
 
 ### 3.4 三階段自動更新機制
 
@@ -220,11 +164,7 @@ uv run pip-audit
 
 ---
 
-<a id="section-4"></a>
-
 ## 4. 其他功能
-
-<a id="section-4-1"></a>
 
 ### 4.1 量化效益儀表板
 
@@ -238,8 +178,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-4-2"></a>
-
 ### 4.2 老式 frameset / iframe 網站：網路開通模組
 
 - **背景**：企業內部的網路存取控制系統（NAC）常為老式多層 `iframe` / `frameset` 架構，且針對桌機（單一有線網卡）與筆電（有線 + 無線雙網卡）有不同的開通流程，傳統人工需先去資產系統查出設備 MAC Address 再手動複製貼上。
@@ -249,8 +187,6 @@ uv run pip-audit
   3. **彈出視窗攔截與批次授權**：透過 Playwright `expect_popup()` 攔截「變更存取權限」彈出視窗，自動選取「IT 維修放行（Repair Access）」並填入稽核備註，一次完成單／雙網卡開通。
 
 ---
-
-<a id="section-4-3"></a>
 
 ### 4.3 Outlook 郵件草稿與內建 HTML 預覽降級
 
@@ -262,8 +198,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-4-4"></a>
-
 ### 4.4 Windows DPAPI 本機安全憑證庫
 
 - **背景**：自動化工具需要保存使用者的企業入口網與網管系統帳密，若以明文或簡易編碼（如 Base64）儲存於本機硬碟，將帶來嚴重的憑證外洩風險。
@@ -273,8 +207,6 @@ uv run pip-audit
     - 加密後的密文與當前 Windows 帳戶強制綁定，即使設定檔被複製到其他電腦或由其他 Windows 帳號讀取，皆無法解密還原。
 
 ---
-
-<a id="section-4-5"></a>
 
 ### 4.5 一鍵打包與自動發布
 
@@ -289,8 +221,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-4-6"></a>
-
 ### 4.6 自適應視窗縮放與深淺色主題
 
 - **背景**：企業內部電腦螢幕解析度與 Windows 顯示比例差異極大，傳統固定像素的 Tkinter 介面容易在高解析度螢幕顯得過小，或在小螢幕發生版面裁切。
@@ -299,8 +229,6 @@ uv run pip-audit
   2. **深淺色主題即時切換**：內建淺色（Light）與深色（Dark）兩套完整色彩語意系統（`ThemeManager`），點擊側邊欄主題按鈕即可即時切換全視窗與自繪 Canvas 元件配色，並自動持久化保存於 `data/settings.json`。
 
 ---
-
-<a id="section-5"></a>
 
 ## 5. 專案演進與版本歷程
 
@@ -316,8 +244,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-5-1"></a>
-
 ### ver1：最小可行產品驗證（MVP）
 
 - 耗時：3 天
@@ -331,8 +257,6 @@ uv run pip-audit
   - 獲得同事對專案方向的初步認同，但例外處理、穩定性與跨環境相容性方面仍有改進空間
 
 ---
-
-<a id="section-5-2"></a>
 
 ### ver2：改善使用體驗、增加迭代效率
 
@@ -348,8 +272,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-5-3"></a>
-
 ### ver3：實務部署、多人使用
 
 - 耗時：40 天
@@ -363,8 +285,6 @@ uv run pip-audit
   - 更多同事參與使用與回饋後，我獲得了更多靈感與熱情，持續精進並修正盲點
 
 ---
-
-<a id="section-5-4"></a>
 
 ### ver4：模組化、工程化重構
 
@@ -380,8 +300,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-5-5"></a>
-
 ### ver5：轉型 GUI 與 UI/UX 現代化
 
 - 耗時：35 天
@@ -395,8 +313,6 @@ uv run pip-audit
   - 簡單、直覺，新人也能快速上手，成為大家日常工作的好幫手
 
 ---
-
-<a id="section-5-6"></a>
 
 ### 未來規劃：穩定性強化、新人教育訓練、引入數據分析與 AI 應用
 
@@ -414,11 +330,7 @@ uv run pip-audit
 
 ---
 
-<a id="section-6"></a>
-
 ## 6. 系統架構與開發指南
-
-<a id="section-6-1"></a>
 
 ### 6.1 系統總體架構圖
 
@@ -450,8 +362,6 @@ uv run pip-audit
 ```
 
 ---
-
-<a id="section-6-2"></a>
 
 ### 6.2 專案目錄結構
 
@@ -524,11 +434,7 @@ it-rpa-suite/
 
 ---
 
-<a id="section-6-3"></a>
-
 ### 6.3 接手開發指南
-
-<a id="section-6-3-1"></a>
 
 #### 6.3.1 建議開發環境
 
@@ -543,8 +449,6 @@ it-rpa-suite/
 uv sync
 uv run pre-commit install
 ```
-
-<a id="section-6-3-2"></a>
 
 #### 6.3.2 啟動與基本驗證
 
