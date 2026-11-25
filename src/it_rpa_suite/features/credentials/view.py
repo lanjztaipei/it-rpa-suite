@@ -131,7 +131,7 @@ class CredentialsView(ttk.Frame):
             form_frame,
             row=0,
             variable=self.email_var,
-            placeholder="工程師 Email (例如 alex.chen@enterprise.local)",
+            placeholder="公司 Email (例如 alex.chen@enterprise.local)",
         )
         self.portal_account_entry = self._add_entry(
             form_frame,
