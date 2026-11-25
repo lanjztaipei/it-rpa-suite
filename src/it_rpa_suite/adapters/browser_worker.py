@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import queue
 import threading
 from collections.abc import Callable
@@ -15,11 +16,29 @@ from it_rpa_suite.adapters.logger import get_logger
 
 logger = get_logger(__name__)
 
+SLOW_MO_ENV_VAR = "IT_SUITE_SLOW_MO"
+
 EDGE_LAUNCH_ARGS = [
     "--start-maximized",
     "--disable-translate",
     ("--disable-features=DownloadBubble,DownloadBubbleV2,Translate,TranslateUI,msEdgeTranslate"),
 ]
+
+
+def get_slow_mo_ms(default: float = 0.0) -> float:
+    """Resolve Playwright `slow_mo` delay in milliseconds from `IT_SUITE_SLOW_MO`."""
+    raw = os.environ.get(SLOW_MO_ENV_VAR, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("%s 設定無效 (%r)，將回退為 %.0f ms", SLOW_MO_ENV_VAR, raw, default)
+        return default
+    if value < 0:
+        logger.warning("%s 不可為負數 (%r)，將回退為 %.0f ms", SLOW_MO_ENV_VAR, raw, default)
+        return default
+    return value
 
 
 def _attach_dialog_handler(page: Any, handler: Callable[[Any], None]) -> None:
@@ -41,9 +60,11 @@ class BrowserSession:
         self,
         headless: bool = False,
         downloads_path: str | None = None,
+        slow_mo: float | None = None,
     ) -> None:
         self.headless = headless
         self.downloads_path = downloads_path
+        self.slow_mo = get_slow_mo_ms() if slow_mo is None else max(0.0, float(slow_mo))
         self.playwright: Any = None
         self.browser: Any = None
         self.context: Any = None
@@ -57,7 +78,11 @@ class BrowserSession:
 
         self._owner_thread_id = threading.get_ident()
         self._closed = False
-        logger.info("開始建立共用 BrowserSession (headless=%s)", self.headless)
+        logger.info(
+            "開始建立共用 BrowserSession (headless=%s, slow_mo=%.0fms)",
+            self.headless,
+            self.slow_mo,
+        )
 
         self.playwright = sync_playwright().start()
         launch_args = [] if self.headless else EDGE_LAUNCH_ARGS
@@ -68,6 +93,7 @@ class BrowserSession:
                 headless=self.headless,
                 args=launch_args,
                 downloads_path=self.downloads_path,
+                slow_mo=self.slow_mo,
             )
         except Exception:
             logger.warning("以 msedge channel 啟動失敗，改用預設 Chromium 啟動")
@@ -75,6 +101,7 @@ class BrowserSession:
                 headless=self.headless,
                 args=launch_args,
                 downloads_path=self.downloads_path,
+                slow_mo=self.slow_mo,
             )
 
         context_kwargs: dict[str, Any] = {
@@ -190,9 +217,11 @@ class AutomationWorker:
         self,
         headless: bool = False,
         downloads_path: str | None = None,
+        slow_mo: float | None = None,
     ) -> None:
         self.headless = headless
         self.downloads_path = downloads_path
+        self.slow_mo = slow_mo
 
         self._task_queue: queue.Queue[Any] = queue.Queue()
         self._thread: threading.Thread | None = None
@@ -276,6 +305,7 @@ class AutomationWorker:
             self._browser_session = BrowserSession(
                 headless=self.headless,
                 downloads_path=self.downloads_path,
+                slow_mo=self.slow_mo,
             )
         self._browser_session.ensure_started()
         return self._browser_session
