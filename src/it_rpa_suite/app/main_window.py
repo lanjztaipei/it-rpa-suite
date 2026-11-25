@@ -574,7 +574,7 @@ class MainWindow:
             message = (
                 f"目前找不到本機版本紀錄（data/version.txt），偵測到更新套件"
                 f"（時間：{format_timestamp(result.source_timestamp)}）。\n\n"
-                "立即更新將關閉本程式與相關自動化分頁，是否立即更新？"
+                "立即更新將關閉本程式，是否立即更新？"
             )
         else:
             title = "發現新版本"
@@ -582,7 +582,7 @@ class MainWindow:
                 "偵測到較新的更新版本！\n\n"
                 f"目前版本時間：{format_timestamp(result.installed_timestamp)}\n"
                 f"最新套件時間：{format_timestamp(result.source_timestamp)}\n\n"
-                "立即更新將關閉本程式與相關自動化分頁，是否立即更新？"
+                "立即更新將關閉本程式，是否立即更新？"
             )
 
         if not show_confirm_dialog(

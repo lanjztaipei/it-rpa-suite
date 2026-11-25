@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -17,6 +19,7 @@ for _p in (_TOOLS_DIR, _UPDATER_DIR):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+import updater as updater_module  # noqa: E402
 from ext_provision_demo import is_last_two_digits_repeated  # noqa: E402
 from it_rpa_suite.features.toolbox.view import find_tool_files  # noqa: E402
 from updater import (  # noqa: E402
@@ -27,6 +30,7 @@ from updater import (  # noqa: E402
     Updater,
     UpdateStage,
     resolve_expected_sha256_arg,
+    resolve_no_relaunch_arg,
     resolve_source_zip_arg,
 )
 
@@ -453,6 +457,160 @@ def test_install_update_rolls_back_old_core_on_promotion_failure(
     assert not paths.backup_internal_dir.exists()
     assert not paths.backup_executable.exists()
     assert not paths.staging_dir.exists()
+
+
+def test_relaunch_application_spawns_detached_process_with_clean_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify relaunch_application spawns ITRPASuite.exe detached and strips updater/PyInstaller env."""
+    app_root = tmp_path / "app"
+    (app_root / "_internal").mkdir(parents=True)
+    main_exe = app_root / MAIN_EXECUTABLE_NAME
+    main_exe.write_text("exe", encoding="utf-8")
+    source_zip = _create_release_zip(app_root / "released" / "ITRPASuite.zip", {"a.txt": "1"})
+
+    monkeypatch.setenv("IT_SUITE_UPDATE_ZIP", str(source_zip))
+    monkeypatch.setenv("IT_SUITE_UPDATE_SHA256", "a" * 64)
+    monkeypatch.setenv("IT_SUITE_UPDATER_NO_RELAUNCH", "1")
+    monkeypatch.setenv("_MEIPASS2", "C:\\temp\\_MEI123")
+    monkeypatch.setenv("_PYI_ARCHIVE_FILE", "C:\\temp\\updater.exe")
+
+    captured: dict[str, Any] = {}
+
+    def _fake_popen(cmd: list[str], **kwargs: Any) -> object:
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(updater_module.subprocess, "Popen", _fake_popen)
+
+    paths = _make_paths(app_root, source_zip, running_from_internal=True)
+    updater = Updater(paths, sleep_fn=lambda _: None)
+
+    assert updater.relaunch_application() is True
+    assert captured["cmd"] == [str(main_exe.resolve())]
+    kwargs = captured["kwargs"]
+    assert kwargs["cwd"] == str(app_root.resolve())
+    assert kwargs["close_fds"] is True
+    assert kwargs["stdin"] == subprocess.DEVNULL
+    assert kwargs["stdout"] == subprocess.DEVNULL
+    assert kwargs["stderr"] == subprocess.DEVNULL
+
+    expected_flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+        subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+    )
+    assert kwargs["creationflags"] == expected_flags
+
+    child_env = kwargs["env"]
+    assert "IT_SUITE_UPDATE_ZIP" not in child_env
+    assert "IT_SUITE_UPDATE_SHA256" not in child_env
+    assert "IT_SUITE_UPDATER_NO_RELAUNCH" not in child_env
+    assert "_MEIPASS2" not in child_env
+    assert "_PYI_ARCHIVE_FILE" not in child_env
+
+
+def test_relaunch_application_skips_when_executable_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify relaunch_application returns False without spawning when main EXE does not exist."""
+    app_root = tmp_path / "app"
+    (app_root / "_internal").mkdir(parents=True)
+    source_zip = _create_release_zip(app_root / "released" / "ITRPASuite.zip", {"a.txt": "1"})
+
+    popen_called = False
+
+    def _fail_popen(*_args: Any, **_kwargs: Any) -> object:
+        nonlocal popen_called
+        popen_called = True
+        return object()
+
+    monkeypatch.setattr(updater_module.subprocess, "Popen", _fail_popen)
+
+    paths = _make_paths(app_root, source_zip, running_from_internal=True)
+    updater = Updater(paths, sleep_fn=lambda _: None)
+
+    assert updater.relaunch_application() is False
+    assert popen_called is False
+
+
+def test_main_stage3_success_relaunches_and_closes_without_pause(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify successful Stage 3 completion auto-relaunches main app and exits without pausing."""
+    app_root = tmp_path / "app"
+    (app_root / "_internal").mkdir(parents=True)
+    source_zip = _create_release_zip(app_root / "released" / "ITRPASuite.zip", {"a.txt": "1"})
+    paths = _make_paths(app_root, source_zip, running_from_internal=True)
+
+    pause_calls: list[str] = []
+    relaunch_calls: list[bool] = []
+
+    monkeypatch.setattr(UpdatePaths, "from_runtime", classmethod(lambda cls, **_kw: paths))
+    monkeypatch.setattr(Updater, "run", lambda _self: UpdateStage.IN_PROGRESS)
+    monkeypatch.setattr(
+        Updater,
+        "relaunch_application",
+        lambda _self: relaunch_calls.append(True) or True,
+    )
+    monkeypatch.setattr(updater_module, "pause", lambda msg: pause_calls.append(msg))
+    monkeypatch.delenv("IT_SUITE_UPDATER_NO_RELAUNCH", raising=False)
+
+    assert updater_module.main([]) == 0
+    assert relaunch_calls == [True]
+    assert pause_calls == []
+
+    # With --no-relaunch, skip relaunching but still auto-close without pause
+    relaunch_calls.clear()
+    assert updater_module.main(["--no-relaunch"]) == 0
+    assert relaunch_calls == []
+    assert pause_calls == []
+
+    # Verify env resolution for --no-relaunch
+    monkeypatch.setenv("IT_SUITE_UPDATER_NO_RELAUNCH", "true")
+    assert resolve_no_relaunch_arg([]) is True
+
+
+def test_main_not_needed_and_errors_still_pause(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify NOT_NEEDED and error outcomes still pause for console visibility and never relaunch."""
+    app_root = tmp_path / "app"
+    (app_root / "_internal").mkdir(parents=True)
+    source_zip = _create_release_zip(app_root / "released" / "ITRPASuite.zip", {"a.txt": "1"})
+    paths = _make_paths(app_root, source_zip, running_from_internal=True)
+
+    pause_calls: list[str] = []
+    relaunch_calls: list[bool] = []
+
+    monkeypatch.setattr(UpdatePaths, "from_runtime", classmethod(lambda cls, **_kw: paths))
+    monkeypatch.setattr(
+        Updater,
+        "relaunch_application",
+        lambda _self: relaunch_calls.append(True) or True,
+    )
+    monkeypatch.setattr(updater_module, "pause", lambda msg: pause_calls.append(msg))
+    monkeypatch.delenv("IT_SUITE_UPDATER_NO_RELAUNCH", raising=False)
+
+    # NOT_NEEDED pauses without relaunch
+    monkeypatch.setattr(Updater, "run", lambda _self: UpdateStage.NOT_NEEDED)
+    assert updater_module.main([]) == 0
+    assert relaunch_calls == []
+    assert len(pause_calls) == 1
+
+    # UpdateError pauses and returns exit code 1
+    pause_calls.clear()
+
+    def _raise_update_error(_self: Updater) -> UpdateStage:
+        raise UpdateError("boom")
+
+    monkeypatch.setattr(Updater, "run", _raise_update_error)
+    assert updater_module.main([]) == 1
+    assert relaunch_calls == []
+    assert len(pause_calls) == 1
 
 
 # ------------------------------------------------------------------
