@@ -497,7 +497,7 @@ class MainWindow:
         if not show_confirm_dialog(
             parent=self.root,
             title="檢查更新",
-            message="即將關閉程式並執行三階段安全更新檢查，是否繼續？",
+            message="即將關閉程式並執行更新檢查，是否繼續？",
             confirm_text="是",
             cancel_text="否",
             sf=self.scale_factor,

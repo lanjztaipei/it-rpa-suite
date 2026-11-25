@@ -313,7 +313,7 @@ class OnboardingView(ttk.Frame):
         comp_info = create_info_tooltip(
             self,
             comp_row,
-            "智慧設備判別規則：\n• 預設 / 1 開頭桌機 (如 IT-100002)：顯示螢幕編號欄位，桌機自動加配 USB 鍵盤\n• 3 開頭筆電 (如 IT-300002)：免填螢幕（自動縮減為三個欄位），加配滑鼠、耳機與網路線",
+            "智慧設備判別規則：\n•  1 開頭桌機 (如 IT-100002)：\n顯示螢幕編號欄位，桌機自動加配 USB 鍵盤\n• 3 開頭筆電 (如 IT-300002)：\n免填螢幕（自動縮減為三個欄位），加配滑鼠、耳機與網路線",
         )
         comp_info.grid(row=0, column=1, padx=(self.s(6), 0))
 
