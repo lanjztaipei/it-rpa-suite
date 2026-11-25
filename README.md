@@ -17,31 +17,6 @@
 - 本機資料儲存（SQLite）、Windows DPAPI 憑證保護、設定檔原子寫入（Atomic Write）
 - 內建的本機 Mock HTTP Server、執行檔一鍵發布及三階段自我更新機制
 
-## Quick Start
-
-需求環境：Windows 10/11、Python 3.12（由 `.python-version` 鎖定）、[`uv`](https://docs.astral.sh/uv/)、Microsoft Edge。
-
-```powershell
-# 1. 建立虛擬環境並安裝正式與開發依賴
-uv sync
-
-# 2. 啟動應用程式（自動掛載內建離線 Mock Server）
-uv run python main.py
-
-# 3. 安裝本機 Git pre-commit Hook（選用但建議）
-uv run pre-commit install
-```
-
-### 本機品質檢查指令（與 CI 保持一致）
-
-```powershell
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy src tools
-uv run pytest
-uv run pip-audit
-```
-
 ---
 
 ## 1. 專案概述
@@ -434,29 +409,29 @@ it-rpa-suite/
 
 ---
 
-### 6.3 接手開發指南
+### 6.3 快速開始與開發指南
 
-#### 6.3.1 建議開發環境
+#### 6.3.1 環境需求與快速啟動（Quick Start）
 
 - **作業系統**：Windows 10 或 Windows 11。
-- **Python 版本**：Python 3.10 以上（開發環境以 `.python-version` 鎖定 Python 3.12，建議搭配 [`uv`](https://docs.astral.sh/uv/) 管理）。
+- **Python 版本**：Python 3.10 以上（開發環境以 `.python-version` 鎖定 Python 3.12，搭配 [`uv`](https://docs.astral.sh/uv/) 管理）。
 - **瀏覽器**：Microsoft Edge（供 Playwright 自動化流程使用）。
 - **選配軟體**：Microsoft Outlook 桌面版（供 COM 郵件草稿功能使用；若未安裝，系統會自動降級使用內建的 HTML 預覽視窗，不影響流程執行）。
 
-首次取得專案後，建議在根目錄透過 `uv` 建立乾淨虛擬環境並同步依賴套件（含 `[dependency-groups] dev`）：
-
 ```powershell
+# 1. 建立虛擬環境並同步正式與開發依賴（含 [dependency-groups] dev）
 uv sync
+
+# 2. 啟動應用程式（自動掛載內建離線 Mock Server）
+uv run python main.py
+
+# 3. 安裝本機 Git pre-commit Hook（選用但建議）
 uv run pre-commit install
 ```
 
-#### 6.3.2 啟動與基本驗證
+#### 6.3.2 啟動後功能驗證
 
-```powershell
-uv run python main.py
-```
-
-啟動後可依序確認以下項目：
+啟動應用程式後可依序確認以下項目：
 
 1. **能否正常開啟應用程式與設定憑證**
    - 首次啟動且尚未設定憑證時，應用程式會自動引導至「**系統憑證設定**」畫面。
@@ -465,10 +440,16 @@ uv run python main.py
 2. **能否正常執行基礎自動化功能**
    - 確認視窗底部狀態列右側顯示本機沙盒運行網址（預設自動掛載於 `Sandbox: http://127.0.0.1:8000`）。
    - 切換至側邊欄「**設備借還與聯查**」，在資產編號欄位輸入範例編號 `300001`（或 `IT-300001`）加入清單，工號／單號欄位留白（自動判定為歸還與保管人聯查）並執行，驗證 Playwright 能否自動開啟 Edge 完成跨分頁反查與歸還準備。
-3. **能否順利執行測試、打包與三階段更新**
-   - 執行自動化測試套件確認所有驗證與覆蓋率門檻通過：
-     ```powershell
-     uv run pytest
-     ```
+3. **能否順利打包與觸發三階段更新**
    - 雙擊執行根目錄下的 `build_release.bat`（或執行 `powershell -ExecutionPolicy Bypass -File scripts/build_release.ps1`），確認可正常編譯並於 `released/ITRPASuite.zip` 產出發布包。
    - 回到應用程式左側邊欄點擊「**檢查更新**」，驗證三階段自動更新流程是否可正常觸發並完成升級。
+
+#### 6.3.3 本機品質檢查指令（與 CI 保持一致）
+
+```powershell
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy src tools
+uv run pytest
+uv run pip-audit
+```
