@@ -210,15 +210,25 @@ def ensure_sandbox_server(preferred_port: int = 8000) -> Iterator[str]:
                 pass
 
 
+def should_ignore_https_errors() -> bool:
+    """Return True only when `IT_SUITE_IGNORE_HTTPS_ERRORS` is explicitly enabled."""
+    raw = os.environ.get("IT_SUITE_IGNORE_HTTPS_ERRORS", "false").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def setup_browser(
     headless: bool = False,
     downloads_path: str | None = None,
     dialog_action: str | Callable[[Any], None] | None = "accept",
     default_timeout_ms: int = 30000,
+    ignore_https_errors: bool | None = None,
 ) -> tuple[Any, Any, Any, Any]:
     """Launch Microsoft Edge (with fallback to Chromium) and return `(playwright, browser, context, page)`."""
     playwright = sync_playwright().start()
     launch_args = [] if headless else EDGE_LAUNCH_ARGS
+    ignore_https = (
+        should_ignore_https_errors() if ignore_https_errors is None else bool(ignore_https_errors)
+    )
 
     try:
         browser = playwright.chromium.launch(
@@ -236,7 +246,7 @@ def setup_browser(
 
     context_kwargs: dict[str, Any] = {
         "accept_downloads": True,
-        "ignore_https_errors": True,
+        "ignore_https_errors": ignore_https,
         "locale": "zh-TW",
     }
     if not headless:
