@@ -358,9 +358,32 @@ def test_runtime_dialog_placeholder_focus_and_mock_call_uia_detection(
         dlg.destroy()
 
         # 2. Test spawn_mock_incoming_call + pywinauto UIA window detection + CallerToast
+        default_mock_win = spawn_mock_incoming_call(root, auto_close_ms=5000)
+        root.update_idletasks()
+        default_labels = [
+            str(widget.cget("text"))
+            for frame in default_mock_win.winfo_children()
+            for widget in frame.winfo_children()
+            if isinstance(widget, tk.Label)
+        ]
+        assert len(default_labels) == 3
+        assert default_labels[1].startswith("Incoming Call from ")
+        default_ext = default_labels[1].removeprefix("Incoming Call from ")
+        assert default_labels[2] == f"來電自 {default_ext}"
+        assert all("沙盒對應" not in text for text in default_labels)
+        default_mock_win.destroy()
+
         mock_win = spawn_mock_incoming_call(root, caller_ext="50212", auto_close_ms=5000)
         root.update_idletasks()
         mock_win.update()
+        mock_labels = [
+            str(widget.cget("text"))
+            for frame in mock_win.winfo_children()
+            for widget in frame.winfo_children()
+            if isinstance(widget, tk.Label)
+        ]
+        assert "來電自 50212" in mock_labels
+        assert all("沙盒對應" not in text for text in mock_labels)
 
         monitor = CallerIdMonitor(root=root, enabled=True)
         detected = monitor._scan_incoming_call_window()
