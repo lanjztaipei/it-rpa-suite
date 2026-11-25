@@ -38,7 +38,7 @@ jobs:
         run: uv run ruff format --check .
 
   typecheck:
-    name: Typecheck (Mypy)
+    name: Type Check (Mypy)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -57,7 +57,7 @@ jobs:
         run: uv run mypy src tools
 
   security-audit:
-    name: Security Audit (pip-audit)
+    name: Dependency Audit (pip-audit)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -76,7 +76,7 @@ jobs:
         run: uv run pip-audit
 
   tests:
-    name: Tests & Coverage (Windows)
+    name: Tests & Coverage (Pytest)
     runs-on: windows-latest
     steps:
       - name: Checkout repository
