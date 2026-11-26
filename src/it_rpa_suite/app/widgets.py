@@ -1084,12 +1084,18 @@ class HTMLPreviewDialog(tk.Toplevel):
         )
         meta_frame.columnconfigure(1, weight=1)
 
-        fields = (
-            ("收件人 (To):", str(self.draft_data.get("to") or "（未指定）")),
-            ("副本 (CC):", str(self.draft_data.get("cc") or "（無）")),
-            ("主旨 (Subject):", str(self.draft_data.get("subject") or "（無主旨）")),
+        fields: list[tuple[str, str, bool]] = [
+            ("收件人 (To):", str(self.draft_data.get("to") or "（未指定）"), False),
+            ("副本 (CC):", str(self.draft_data.get("cc") or "（無）"), False),
+        ]
+        bcc_value = str(self.draft_data.get("bcc") or "").strip()
+        if bcc_value:
+            fields.append(("密件副本 (BCC):", bcc_value, False))
+        fields.append(
+            ("主旨 (Subject):", str(self.draft_data.get("subject") or "（無主旨）"), True)
         )
-        for row_idx, (label_text, val_text) in enumerate(fields):
+
+        for row_idx, (label_text, val_text, is_bold) in enumerate(fields):
             tk.Label(
                 meta_frame,
                 text=label_text,
@@ -1101,11 +1107,12 @@ class HTMLPreviewDialog(tk.Toplevel):
             tk.Label(
                 meta_frame,
                 text=val_text,
-                font=(FONT_FAMILY, self.s(9.5), "bold" if row_idx == 2 else "normal"),
+                font=(FONT_FAMILY, self.s(9.5), "bold" if is_bold else "normal"),
                 foreground=text_color,
                 background=surface_soft,
                 anchor="w",
                 justify="left",
+                wraplength=self.s(540),
             ).grid(row=row_idx, column=1, sticky="ew", pady=self.s(2))
 
         # 3. Formatted Body & Table Preview
@@ -1427,3 +1434,386 @@ def show_caller_toast(
         duration_ms=duration_ms,
         sf=sf,
     )
+
+
+class ModernDropdown(tk.Frame):
+    """Themed, DPI-scaled modern dropdown selector with a floating borderless option panel."""
+
+    def __init__(
+        self,
+        parent: tk.Misc,
+        *,
+        options: tuple[str, ...] | list[str],
+        textvariable: tk.StringVar | None = None,
+        placeholder: str = "請選擇項目",
+        width: int | None = None,
+        on_select: Callable[[str], Any] | None = None,
+        sf: float | None = None,
+    ) -> None:
+        self._toplevel = parent.winfo_toplevel()
+        self.colors: dict[str, str] = getattr(self._toplevel, "theme_colors", LIGHT_COLORS)
+        self.sf: float = (
+            float(sf)
+            if sf is not None
+            else float(getattr(parent, "sf", getattr(self._toplevel, "scale_factor", 1.5)))
+        )
+        self._items: tuple[str, ...] = tuple(options)
+        self._placeholder = placeholder
+        self._on_select = on_select
+        self.variable = textvariable or tk.StringVar(value=placeholder)
+        self._enabled = True
+        self._hovered = False
+        self._popup: tk.Toplevel | None = None
+        self._outside_click_bind_id: str | None = None
+        self._root_configure_bind_id: str | None = None
+        self._escape_bind_id: str | None = None
+        self._dropdown_width = width if width is not None else scale(210, self.sf)
+
+        super().__init__(
+            parent,
+            background=self.colors.get("surface", "#FFFFFF"),
+            highlightbackground=self.colors.get("border", "#E4E9F0"),
+            highlightcolor=self.colors.get("primary", "#2D6CDF"),
+            highlightthickness=1,
+            bd=0,
+            width=self._dropdown_width,
+            height=scale(38, self.sf),
+            cursor="hand2",
+            takefocus=1,
+        )
+        self.grid_propagate(False)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        self._value_label = tk.Label(
+            self,
+            text="",
+            font=(FONT_FAMILY, scale(10, self.sf)),
+            background=self.colors.get("surface", "#FFFFFF"),
+            foreground=self.colors.get("text", "#172033"),
+            anchor="w",
+            cursor="hand2",
+        )
+        self._value_label.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=(scale(12, self.sf), scale(6, self.sf)),
+        )
+
+        self._chevron_label = tk.Label(
+            self,
+            text="▾",
+            font=(FONT_FAMILY, scale(10, self.sf)),
+            background=self.colors.get("surface", "#FFFFFF"),
+            foreground=self.colors.get("text_secondary", "#667085"),
+            anchor="e",
+            cursor="hand2",
+        )
+        self._chevron_label.grid(
+            row=0,
+            column=1,
+            sticky="e",
+            padx=(0, scale(11, self.sf)),
+        )
+
+        for widget in (self, self._value_label, self._chevron_label):
+            widget.bind("<Button-1>", self._on_trigger_click)
+            widget.bind("<Enter>", self._on_hover_enter)
+            widget.bind("<Leave>", self._on_hover_leave)
+
+        self.bind("<Return>", self._on_trigger_click)
+        self.bind("<space>", self._on_trigger_click)
+        self.bind("<Down>", self._on_trigger_click)
+        self.bind("<Escape>", lambda _e: self.close_popup())
+        self.bind("<Destroy>", self._on_destroy, add="+")
+
+        self._var_trace_id = self.variable.trace_add("write", lambda *_a: self._refresh_display())
+        self._refresh_display()
+
+    @property
+    def options(self) -> tuple[str, ...]:
+        return self._items
+
+    @property
+    def is_open(self) -> bool:
+        return self._popup is not None and bool(self._popup.winfo_exists())
+
+    def get(self) -> str:
+        val = self.variable.get().strip()
+        return val if val in self._items else ""
+
+    def set(self, value: str) -> None:
+        cleaned = (value or "").strip()
+        self.variable.set(cleaned if cleaned in self._items else self._placeholder)
+
+    def set_enabled(self, enabled: bool) -> None:
+        self._enabled = bool(enabled)
+        if not self._enabled:
+            self.close_popup()
+        self._refresh_display()
+
+    def _refresh_display(self) -> None:
+        if not self.winfo_exists():
+            return
+        raw = self.variable.get().strip()
+        is_placeholder = not raw or raw == self._placeholder or raw not in self._items
+        display_text = self._placeholder if is_placeholder else raw
+
+        surface = self.colors.get("surface", "#FFFFFF")
+        surface_soft = self.colors.get("surface_soft", "#F8FAFC")
+        card_hover = self.colors.get("card_hover", "#F0F5FD")
+        border = self.colors.get("border", "#E4E9F0")
+        primary = self.colors.get("primary", "#2D6CDF")
+        text_color = self.colors.get("text", "#172033")
+        text_secondary = self.colors.get("text_secondary", "#667085")
+        text_muted = self.colors.get("text_muted", "#98A2B3")
+
+        if not self._enabled:
+            bg = surface_soft
+            bd = border
+            fg = text_muted
+            chevron_fg = text_muted
+            cursor = "arrow"
+        elif self.is_open:
+            bg = surface
+            bd = primary
+            fg = text_muted if is_placeholder else text_color
+            chevron_fg = primary
+            cursor = "hand2"
+        elif self._hovered:
+            bg = card_hover
+            bd = primary
+            fg = text_muted if is_placeholder else text_color
+            chevron_fg = primary
+            cursor = "hand2"
+        else:
+            bg = surface
+            bd = border
+            fg = text_muted if is_placeholder else text_color
+            chevron_fg = text_secondary
+            cursor = "hand2"
+
+        self.configure(background=bg, highlightbackground=bd, cursor=cursor)
+        self._value_label.configure(
+            text=display_text,
+            background=bg,
+            foreground=fg,
+            cursor=cursor,
+        )
+        self._chevron_label.configure(
+            text="▴" if self.is_open else "▾",
+            background=bg,
+            foreground=chevron_fg,
+            cursor=cursor,
+        )
+
+    def _on_hover_enter(self, _event: Any = None) -> None:
+        if not self._enabled:
+            return
+        self._hovered = True
+        self._refresh_display()
+
+    def _on_hover_leave(self, _event: Any = None) -> None:
+        self._hovered = False
+        self._refresh_display()
+
+    def _on_trigger_click(self, _event: Any = None) -> str:
+        if not self._enabled:
+            return "break"
+        if self.is_open:
+            self.close_popup()
+        else:
+            self.open_popup()
+        return "break"
+
+    def open_popup(self) -> None:
+        if not self._enabled or self.is_open:
+            return
+
+        self.update_idletasks()
+        x = self.winfo_rootx()
+        y = self.winfo_rooty() + self.winfo_height() + scale(4, self.sf)
+        width = max(self.winfo_width(), self._dropdown_width)
+
+        surface = self.colors.get("surface", "#FFFFFF")
+        border = self.colors.get("border", "#E4E9F0")
+        primary = self.colors.get("primary", "#2D6CDF")
+        text_color = self.colors.get("text", "#172033")
+        card_hover = self.colors.get("card_hover", "#F0F5FD")
+        selected_bg = self.colors.get("button_active", "#EEF2F7")
+
+        popup = tk.Toplevel(self._toplevel)
+        popup.withdraw()
+        popup.overrideredirect(True)
+        try:
+            popup.attributes("-topmost", True)
+        except tk.TclError:
+            pass
+        popup.configure(background=border)
+
+        panel = tk.Frame(
+            popup,
+            background=surface,
+            padx=scale(4, self.sf),
+            pady=scale(4, self.sf),
+        )
+        panel.pack(fill="both", expand=True, padx=1, pady=1)
+        panel.columnconfigure(0, weight=1)
+
+        current_val = self.get()
+        for row_idx, option in enumerate(self._items):
+            is_selected = option == current_val
+            row_bg = selected_bg if is_selected else surface
+            row_fg = primary if is_selected else text_color
+
+            row_frame = tk.Frame(
+                panel,
+                background=row_bg,
+                cursor="hand2",
+                padx=scale(10, self.sf),
+                pady=scale(7, self.sf),
+            )
+            row_frame.grid(row=row_idx, column=0, sticky="ew", pady=1)
+            row_frame.columnconfigure(0, weight=1)
+
+            opt_label = tk.Label(
+                row_frame,
+                text=option,
+                font=(
+                    FONT_FAMILY,
+                    scale(10, self.sf),
+                    "bold" if is_selected else "normal",
+                ),
+                background=row_bg,
+                foreground=row_fg,
+                anchor="w",
+                cursor="hand2",
+            )
+            opt_label.grid(row=0, column=0, sticky="ew")
+
+            check_label = tk.Label(
+                row_frame,
+                text="✓" if is_selected else "",
+                font=(FONT_FAMILY, scale(9.5, self.sf), "bold"),
+                background=row_bg,
+                foreground=primary,
+                anchor="e",
+                cursor="hand2",
+            )
+            check_label.grid(row=0, column=1, sticky="e", padx=(scale(8, self.sf), 0))
+
+            def _choose(_e: Any = None, val: str = option) -> str:
+                self._select_option(val)
+                return "break"
+
+            def _enter(
+                _e: Any = None,
+                rf: tk.Frame = row_frame,
+                ol: tk.Label = opt_label,
+                cl: tk.Label = check_label,
+            ) -> None:
+                rf.configure(background=card_hover)
+                ol.configure(background=card_hover, foreground=primary)
+                cl.configure(background=card_hover)
+
+            def _leave(
+                _e: Any = None,
+                rf: tk.Frame = row_frame,
+                ol: tk.Label = opt_label,
+                cl: tk.Label = check_label,
+                bg_c: str = row_bg,
+                fg_c: str = row_fg,
+            ) -> None:
+                rf.configure(background=bg_c)
+                ol.configure(background=bg_c, foreground=fg_c)
+                cl.configure(background=bg_c)
+
+            for widget in (row_frame, opt_label, check_label):
+                widget.bind("<Button-1>", _choose)
+                widget.bind("<Enter>", _enter)
+                widget.bind("<Leave>", _leave)
+
+        popup.update_idletasks()
+        popup_height = popup.winfo_reqheight()
+        screen_h = self._toplevel.winfo_screenheight()
+        if y + popup_height > screen_h - scale(24, self.sf):
+            y = max(scale(8, self.sf), self.winfo_rooty() - popup_height - scale(4, self.sf))
+
+        popup.geometry(f"{width}x{popup_height}+{x}+{y}")
+        popup.deiconify()
+        popup.lift()
+        popup.bind("<Escape>", lambda _e: self.close_popup())
+
+        self._popup = popup
+        self._outside_click_bind_id = self._toplevel.bind(
+            "<Button-1>", self._handle_outside_click, add="+"
+        )
+        self._root_configure_bind_id = self._toplevel.bind(
+            "<Configure>", lambda _e: self.close_popup(), add="+"
+        )
+        self._escape_bind_id = self._toplevel.bind(
+            "<Escape>", lambda _e: self.close_popup(), add="+"
+        )
+        self._refresh_display()
+
+    def _handle_outside_click(self, event: Any) -> None:
+        if not self.is_open:
+            return
+        widget = getattr(event, "widget", None)
+        if widget is None:
+            self.close_popup()
+            return
+        widget_path = str(widget)
+        if widget_path.startswith(str(self)) or (
+            self._popup is not None and widget_path.startswith(str(self._popup))
+        ):
+            return
+        self.close_popup()
+
+    def _select_option(self, value: str) -> None:
+        self.variable.set(value)
+        self.close_popup()
+        if callable(self._on_select):
+            self._on_select(value)
+
+    def close_popup(self) -> None:
+        if self._outside_click_bind_id is not None:
+            try:
+                self._toplevel.unbind("<Button-1>", self._outside_click_bind_id)
+            except tk.TclError:
+                pass
+            self._outside_click_bind_id = None
+
+        if self._root_configure_bind_id is not None:
+            try:
+                self._toplevel.unbind("<Configure>", self._root_configure_bind_id)
+            except tk.TclError:
+                pass
+            self._root_configure_bind_id = None
+
+        if self._escape_bind_id is not None:
+            try:
+                self._toplevel.unbind("<Escape>", self._escape_bind_id)
+            except tk.TclError:
+                pass
+            self._escape_bind_id = None
+
+        if self._popup is not None:
+            try:
+                if self._popup.winfo_exists():
+                    self._popup.destroy()
+            except tk.TclError:
+                pass
+            self._popup = None
+
+        self._refresh_display()
+
+    def _on_destroy(self, event: Any = None) -> None:
+        if event is not None and event.widget is not self:
+            return
+        self.close_popup()
+        try:
+            self.variable.trace_remove("write", self._var_trace_id)
+        except (tk.TclError, ValueError):
+            pass

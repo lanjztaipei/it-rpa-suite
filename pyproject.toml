@@ -38,6 +38,7 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
+    "openpyxl>=3.1.0",
     "playwright>=1.40.0",
     "pywin32>=306; sys_platform == 'win32'",
     "pywinauto>=0.6.8; sys_platform == 'win32'",
@@ -109,6 +110,8 @@ warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
 module = [
+    "openpyxl",
+    "openpyxl.*",
     "win32api",
     "win32com",
     "win32com.*",

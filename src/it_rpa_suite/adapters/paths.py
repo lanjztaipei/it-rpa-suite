@@ -71,8 +71,16 @@ class AppPaths:
         return self.assets_dir / "default_ticket_templates.json"
 
     @property
+    def sample_borrow_report_file(self) -> Path:
+        return self.assets_dir / "sample_borrow_report.xlsx"
+
+    @property
     def data_dir(self) -> Path:
         return self.base_dir / "data"
+
+    @property
+    def downloads_dir(self) -> Path:
+        return self.data_dir / "downloads"
 
     @property
     def logs_dir(self) -> Path:
@@ -129,9 +137,10 @@ class AppPaths:
         return self.icons_dir / filename
 
     def ensure_directories(self) -> None:
-        """Create writable data/ and data/logs/ directories and seed default config files."""
+        """Create writable data/, data/logs/, and data/downloads/ directories and seed default config files."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.downloads_dir.mkdir(parents=True, exist_ok=True)
 
         if self.default_settings_file.is_file() and not self.settings_file.exists():
             shutil.copy2(self.default_settings_file, self.settings_file)

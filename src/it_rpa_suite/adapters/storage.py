@@ -18,6 +18,7 @@ logger = get_logger(__name__)
 DEFAULT_SETTINGS: dict[str, Any] = {
     "dark_mode": False,
     "caller_id_enabled": True,
+    "report_site": "",
     "update_source_zip": "released/ITRPASuite.zip",
     "coefficients": {
         "short_loan": 1.5,
@@ -31,6 +32,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "incident_ticket": 3.0,
         "routine_ticket": 3.0,
         "caller_lookup": 2.0,
+        "overdue_borrow_notify": 5.0,
     },
 }
 
@@ -182,6 +184,12 @@ class AppStorage:
 
     def set_caller_id_enabled(self, enabled: bool) -> None:
         self.update_setting("caller_id_enabled", bool(enabled))
+
+    def get_report_site(self) -> str:
+        return str(self.load_settings().get("report_site", "")).strip()
+
+    def set_report_site(self, site: str) -> None:
+        self.update_setting("report_site", str(site).strip())
 
     def get_coefficients(self) -> dict[str, float]:
         coeffs = self.load_settings().get("coefficients", {})
