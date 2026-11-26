@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tkinter as tk
 from pathlib import Path
 
 import pytest
@@ -312,10 +313,9 @@ def test_batch_tickets_end_to_end_playwright(tmp_path: Path) -> None:
 
 def test_runtime_dialog_placeholder_focus_and_mock_call_uia_detection(
     tmp_path: Path,
+    tk_root: tk.Tk,
 ) -> None:
     """Verify GUI RuntimeTicketConfirmDialog '__' caret placement and pywinauto mock call detection."""
-    import tkinter as tk
-
     from it_rpa_suite.adapters.paths import get_app_paths
     from it_rpa_suite.features.caller_id.monitor import (
         CallerIdMonitor,
@@ -329,84 +329,82 @@ def test_runtime_dialog_placeholder_focus_and_mock_call_uia_detection(
     paths = get_app_paths(base_dir=tmp_path)
     repo = TemplateRepository(paths=paths)
 
-    root = tk.Tk()
+    root = tk_root
     root.withdraw()
-    try:
-        # 1. Test RuntimeTicketConfirmDialog '__' focus in title ("IT__工作站記憶體升級")
-        dlg = RuntimeTicketConfirmDialog(
-            root,
-            template={
-                "category": "Incident Request",
-                "email": "alex.chen@enterprise.local",
-                "title": "IT__工作站記憶體升級",
-                "type": "Hardware",
-                "sub_type": "RAM / Storage Upgrade",
-                "corp": "Enterprise-HQ",
-                "resolve": "完成升級。",
-                "_ui_group": "電腦相關",
-            },
-            template_number=1,
-            total_count=2,
-            repository=repo,
-        )
-        root.update_idletasks()
-        target = dlg._focus_runtime_placeholder()
-        assert target.field == "title"
-        assert target.cursor_index == 2
-        assert dlg.title_var.get() == "IT工作站記憶體升級"
-        assert int(dlg.title_entry.index(tk.INSERT)) == 2
-        dlg.destroy()
 
-        # 2. Test spawn_mock_incoming_call + pywinauto UIA window detection + CallerToast
-        default_mock_win = spawn_mock_incoming_call(root, auto_close_ms=5000)
-        root.update_idletasks()
-        default_labels = [
-            str(widget.cget("text"))
-            for frame in default_mock_win.winfo_children()
-            for widget in frame.winfo_children()
-            if isinstance(widget, tk.Label)
-        ]
-        assert len(default_labels) == 3
-        assert default_labels[1].startswith("Incoming Call from ")
-        default_ext = default_labels[1].removeprefix("Incoming Call from ")
-        assert default_labels[2] == f"來電自 {default_ext}"
-        assert all("沙盒對應" not in text for text in default_labels)
-        default_mock_win.destroy()
+    # 1. Test RuntimeTicketConfirmDialog '__' focus in title ("IT__工作站記憶體升級")
+    dlg = RuntimeTicketConfirmDialog(
+        root,
+        template={
+            "category": "Incident Request",
+            "email": "alex.chen@enterprise.local",
+            "title": "IT__工作站記憶體升級",
+            "type": "Hardware",
+            "sub_type": "RAM / Storage Upgrade",
+            "corp": "Enterprise-HQ",
+            "resolve": "完成升級。",
+            "_ui_group": "電腦相關",
+        },
+        template_number=1,
+        total_count=2,
+        repository=repo,
+    )
+    root.update_idletasks()
+    target = dlg._focus_runtime_placeholder()
+    assert target.field == "title"
+    assert target.cursor_index == 2
+    assert dlg.title_var.get() == "IT工作站記憶體升級"
+    assert int(dlg.title_entry.index(tk.INSERT)) == 2
+    dlg.destroy()
 
-        mock_win = spawn_mock_incoming_call(root, caller_ext="50212", auto_close_ms=5000)
-        root.update_idletasks()
-        mock_win.update()
-        mock_labels = [
-            str(widget.cget("text"))
-            for frame in mock_win.winfo_children()
-            for widget in frame.winfo_children()
-            if isinstance(widget, tk.Label)
-        ]
-        assert "來電自 50212" in mock_labels
-        assert all("沙盒對應" not in text for text in mock_labels)
+    # 2. Test spawn_mock_incoming_call + pywinauto UIA window detection + CallerToast
+    default_mock_win = spawn_mock_incoming_call(root, auto_close_ms=5000)
+    root.update_idletasks()
+    default_labels = [
+        str(widget.cget("text"))
+        for frame in default_mock_win.winfo_children()
+        for widget in frame.winfo_children()
+        if isinstance(widget, tk.Label)
+    ]
+    assert len(default_labels) == 3
+    assert default_labels[1].startswith("Incoming Call from ")
+    default_ext = default_labels[1].removeprefix("Incoming Call from ")
+    assert default_labels[2] == f"來電自 {default_ext}"
+    assert all("沙盒對應" not in text for text in default_labels)
+    default_mock_win.destroy()
 
-        monitor = CallerIdMonitor(root=root, enabled=True)
-        detected = monitor._scan_incoming_call_window()
-        assert detected is not None
-        assert detected[1] == "50212"
+    mock_win = spawn_mock_incoming_call(root, caller_ext="50212", auto_close_ms=5000)
+    root.update_idletasks()
+    mock_win.update()
+    mock_labels = [
+        str(widget.cget("text"))
+        for frame in mock_win.winfo_children()
+        for widget in frame.winfo_children()
+        if isinstance(widget, tk.Label)
+    ]
+    assert "來電自 50212" in mock_labels
+    assert all("沙盒對應" not in text for text in mock_labels)
 
-        toast = show_caller_toast(
-            root,
-            {
-                "emp_id": "EMP102",
-                "name": "林雅婷 (Irene Lin)",
-                "dept": "數位產品研發部",
-                "title": "資深前端工程師",
-                "ext": "50212",
-                "location": "HQ-6F-B08",
-                "manager": "張家豪 (EMP002)",
-            },
-            raw_query="50212",
-            duration_ms=2000,
-        )
-        root.update_idletasks()
-        assert toast.winfo_exists()
-        toast.destroy()
-        mock_win.destroy()
-    finally:
-        root.destroy()
+    monitor = CallerIdMonitor(root=root, enabled=True)
+    detected = monitor._scan_incoming_call_window()
+    assert detected is not None
+    assert detected[1] == "50212"
+
+    toast = show_caller_toast(
+        root,
+        {
+            "emp_id": "EMP102",
+            "name": "林雅婷 (Irene Lin)",
+            "dept": "數位產品研發部",
+            "title": "資深前端工程師",
+            "ext": "50212",
+            "location": "HQ-6F-B08",
+            "manager": "張家豪 (EMP002)",
+        },
+        raw_query="50212",
+        duration_ms=2000,
+    )
+    root.update_idletasks()
+    assert toast.winfo_exists()
+    toast.destroy()
+    mock_win.destroy()

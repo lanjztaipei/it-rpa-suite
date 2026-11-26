@@ -5,26 +5,14 @@ from __future__ import annotations
 import tkinter as tk
 from unittest.mock import MagicMock
 
-import pytest
-
 from it_rpa_suite.features.onboarding.view import OnboardingView
 
 
-@pytest.fixture
-def tk_root():
-    root = tk.Tk()
-    root.deiconify()
-    root.lift()
-    root.focus_force()
-    root.update()
-    yield root
-    try:
-        root.destroy()
-    except Exception:
-        pass
-
-
 def test_onboarding_view_default_four_inputs_and_conditional_reduction(tk_root: tk.Tk) -> None:
+    tk_root.deiconify()
+    tk_root.lift()
+    tk_root.focus_force()
+
     mock_app = MagicMock()
     mock_app.scale_factor = 1.0
     mock_app.colors = {}

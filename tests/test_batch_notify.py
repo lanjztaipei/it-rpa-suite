@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import gc
 import tkinter as tk
 from concurrent.futures import Future
 from pathlib import Path
@@ -105,7 +104,10 @@ def test_build_overdue_borrow_email_uses_bcc_and_plain_text() -> None:
 
 
 @pytest.mark.gui
-def test_batch_notify_view_site_persistence_and_action_buttons(tmp_path: Path) -> None:
+def test_batch_notify_view_site_persistence_and_action_buttons(
+    tmp_path: Path,
+    tk_root: tk.Tk,
+) -> None:
     """Verify ModernDropdown 6-site persistence, action submission with real CredentialStore, and 1x3 button states."""
     paths = AppPaths(base_dir=tmp_path)
     paths.ensure_directories()
@@ -136,64 +138,56 @@ def test_batch_notify_view_site_persistence_and_action_buttons(tmp_path: Path) -
         def refresh_usage_stats(self) -> None:
             pass
 
-    root = tk.Tk()
-    root.withdraw()
-    try:
-        app = _StubApp()
-        view = BatchNotifyView(root, app)
+    app = _StubApp()
+    view = BatchNotifyView(tk_root, app)
 
-        # First-time load shows placeholder and 6-municipality ModernDropdown
-        assert view.site_dropdown.options == SITE_OPTIONS
-        assert "台中總部" in SITE_OPTIONS
-        assert len(SITE_OPTIONS) == 6
-        assert view.site_var.get() == SITE_PLACEHOLDER
-        assert view.get_selected_site() == ""
+    # First-time load shows placeholder and 6-municipality ModernDropdown
+    assert view.site_dropdown.options == SITE_OPTIONS
+    assert "台中總部" in SITE_OPTIONS
+    assert len(SITE_OPTIONS) == 6
+    assert view.site_var.get() == SITE_PLACEHOLDER
+    assert view.get_selected_site() == ""
 
-        # Exactly 1x3 actions, only overdue_borrow enabled
-        assert len(NOTIFICATION_ACTIONS) == 3
-        assert len(view.action_buttons) == 3
-        assert view.action_buttons["overdue_borrow"]["enabled"] is True
-        assert view.action_buttons["endpoint_antivirus"]["enabled"] is False
-        assert view.action_buttons["warranty_expiring"]["enabled"] is False
+    # Exactly 1x3 actions, only overdue_borrow enabled
+    assert len(NOTIFICATION_ACTIONS) == 3
+    assert len(view.action_buttons) == 3
+    assert view.action_buttons["overdue_borrow"]["enabled"] is True
+    assert view.action_buttons["endpoint_antivirus"]["enabled"] is False
+    assert view.action_buttons["warranty_expiring"]["enabled"] is False
 
-        # Clicking before picking a site sets inline error without opening any dialog or submitting
-        view._trigger_action("overdue_borrow")
-        assert "請先選擇所在廠區" in view.status_var.get()
-        assert len(submitted_calls) == 0
+    # Clicking before picking a site sets inline error without opening any dialog or submitting
+    view._trigger_action("overdue_borrow")
+    assert "請先選擇所在廠區" in view.status_var.get()
+    assert len(submitted_calls) == 0
 
-        # Open floating dropdown popup, select a site, verify persistence and popup dismissal
-        assert callable(view.site_dropdown._root)
-        view.site_dropdown.event_generate("<Enter>")
-        view.site_dropdown.event_generate("<Leave>")
-        root.update()
-        view.site_dropdown.open_popup()
-        assert view.site_dropdown.is_open is True
-        view.site_dropdown._select_option("台中總部")
-        assert view.site_dropdown.is_open is False
-        assert storage.get_report_site() == "台中總部"
-        assert view.status_var.get() == ""
+    # Open floating dropdown popup, select a site, verify persistence and popup dismissal
+    assert callable(view.site_dropdown._root)
+    view.site_dropdown.event_generate("<Enter>")
+    view.site_dropdown.event_generate("<Leave>")
+    tk_root.update()
+    view.site_dropdown.open_popup()
+    assert view.site_dropdown.is_open is True
+    view.site_dropdown._select_option("台中總部")
+    assert view.site_dropdown.is_open is False
+    assert storage.get_report_site() == "台中總部"
+    assert view.status_var.get() == ""
 
-        # Triggering the active action submits to automation_worker using real CredentialStore.load()
-        view._trigger_action("overdue_borrow")
-        assert len(submitted_calls) == 1
-        fn, args = submitted_calls[0]
-        assert fn is run_overdue_borrow_notify
-        assert args[0] == "台中總部"
-        assert args[1] == "http://127.0.0.1:8000"
-        assert args[2] == {}
-        assert args[3] is storage
-        assert args[4] is paths
+    # Triggering the active action submits to automation_worker using real CredentialStore.load()
+    view._trigger_action("overdue_borrow")
+    assert len(submitted_calls) == 1
+    fn, args = submitted_calls[0]
+    assert fn is run_overdue_borrow_notify
+    assert args[0] == "台中總部"
+    assert args[1] == "http://127.0.0.1:8000"
+    assert args[2] == {}
+    assert args[3] is storage
+    assert args[4] is paths
 
-        view.destroy()
-        del view
-        reopened = BatchNotifyView(root, app)
-        assert reopened.site_var.get() == "台中總部"
-        assert reopened.get_selected_site() == "台中總部"
-        reopened.destroy()
-        del reopened
-        gc.collect()
-    finally:
-        root.destroy()
+    view.destroy()
+    reopened = BatchNotifyView(tk_root, app)
+    assert reopened.site_var.get() == "台中總部"
+    assert reopened.get_selected_site() == "台中總部"
+    reopened.destroy()
 
 
 @pytest.mark.e2e
