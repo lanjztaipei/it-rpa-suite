@@ -1,6 +1,7 @@
 {
   "dark_mode": false,
   "caller_id_enabled": true,
+  "report_site": "",
   "update_source_zip": "released/ITRPASuite.zip",
   "coefficients": {
     "short_loan": 1.5,
@@ -13,6 +14,7 @@
     "nac_dual_mac": 2.0,
     "incident_ticket": 3.0,
     "routine_ticket": 3.0,
-    "caller_lookup": 2.0
+    "caller_lookup": 2.0,
+    "overdue_borrow_notify": 5.0
   }
 }

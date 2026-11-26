@@ -360,6 +360,7 @@ class MainWindow:
             "asset_loan": self.show_asset_loan,
             "onboarding": self.show_onboarding,
             "nac_access": self.show_nac_access,
+            "batch_notify": self.show_batch_notify,
             "ticket_helper": self.show_ticket_helper,
             "toolbox": self.show_toolbox,
             "credentials": self.show_credentials,
@@ -406,6 +407,15 @@ class MainWindow:
         return self._show_view(
             NacAccessView,
             sidebar_item="nac_access",
+            automation_worker=self.automation_worker,
+        )
+
+    def show_batch_notify(self) -> bool:
+        from it_rpa_suite.features.batch_notify.view import BatchNotifyView
+
+        return self._show_view(
+            BatchNotifyView,
+            sidebar_item="batch_notify",
             automation_worker=self.automation_worker,
         )
 
@@ -661,6 +671,7 @@ class MainSidebar(tk.Frame):
                 ("asset_loan", "設備借還與聯查", "show_asset_loan"),
                 ("onboarding", "人員入職與離職", "show_onboarding"),
                 ("nac_access", "網路開通", "show_nac_access"),
+                ("batch_notify", "批量通知", "show_batch_notify"),
             ),
         ),
         (

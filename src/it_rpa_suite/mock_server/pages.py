@@ -476,6 +476,7 @@ def render_home_page(state: SandboxState) -> str:
         <a class="btn secondary" href="/portal/telecom/extensions">6. 電信分機管理 (/portal/telecom/extensions)</a>
         <a class="btn secondary" href="/network/console">7. 網管控制台 (/network/console)</a>
         <a class="btn secondary" href="/servicedesk/new?template=incident">8. IT 服務台開單 (/servicedesk/new)</a>
+        <a class="btn secondary" href="/portal/reports/borrow-overdue">9. 逾期借用報表中心 (/portal/reports/borrow-overdue)</a>
       </div>
     </div>
     <div class="card">
@@ -2072,5 +2073,34 @@ def render_servicedesk_page(
     return _render_layout(
         "Service Desk Portal — IT 服務台工單系統",
         "模擬多組動態搜尋下拉選單、原生 JS Confirm 與 iframe 富文本編輯器 (/servicedesk/new)",
+        _render_portal_login_gate(is_authenticated, workspace),
+    )
+
+
+def render_borrow_report_page(is_authenticated: bool) -> str:
+    workspace = """
+    <div class="card">
+      <h2>短期借用設備報表匯出中心 (Overdue Loan Report)</h2>
+      <p style="color: var(--muted); font-size: 13.5px; margin-bottom: 18px;">
+        點擊下方按鈕匯出最新六都廠區短期借用追蹤明細報表（<code>sample_borrow_report.xlsx</code>）。
+      </p>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <button id="btn-export-excel" type="button" class="success">匯出 Excel 報表 (.xlsx)</button>
+        <span id="export-status" style="font-size: 13px; color: var(--muted);">就緒，可下載最新報表</span>
+      </div>
+    </div>
+    <script>
+      document.getElementById('btn-export-excel').addEventListener('click', function() {
+        const statusEl = document.getElementById('export-status');
+        if (statusEl) {
+          statusEl.textContent = '已觸發報表下載...';
+        }
+        window.location.href = '/portal/reports/borrow-overdue/download';
+      });
+    </script>
+    """
+    return _render_layout(
+        "Asset Report Portal — 逾期借用報表中心",
+        "模擬企業報表網站匯出 Excel 檔案供 Playwright 攔截下載 (/portal/reports/borrow-overdue)",
         _render_portal_login_gate(is_authenticated, workspace),
     )

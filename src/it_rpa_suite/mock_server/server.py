@@ -12,12 +12,14 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from it_rpa_suite.adapters.logger import get_logger
+from it_rpa_suite.adapters.paths import AppPaths
 from it_rpa_suite.mock_server.pages import (
     SandboxState,
     render_asset_detail_page,
     render_asset_issue_page,
     render_asset_return_page,
     render_asset_search_page,
+    render_borrow_report_page,
     render_directory_page,
     render_home_page,
     render_hr_offboarding_page,
@@ -104,6 +106,17 @@ def _make_handler_class(state: SandboxState) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(encoded)
 
+        def _send_xlsx_bytes(self, content: bytes, filename: str) -> None:
+            self.send_response(200)
+            self.send_header(
+                "Content-Type",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
             route = parsed.path.rstrip("/") or "/"
@@ -178,6 +191,18 @@ def _make_handler_class(state: SandboxState) -> type[BaseHTTPRequestHandler]:
                         is_authenticated=authed,
                     )
                 )
+                return
+
+            if route == "/portal/reports/borrow-overdue":
+                self._send_html(render_borrow_report_page(is_authenticated=authed))
+                return
+
+            if route == "/portal/reports/borrow-overdue/download":
+                report_path = AppPaths().sample_borrow_report_file
+                if not report_path.is_file():
+                    self._send_html("Sample report file not found", status=404)
+                    return
+                self._send_xlsx_bytes(report_path.read_bytes(), report_path.name)
                 return
 
             self._send_html(render_home_page(state), status=404)

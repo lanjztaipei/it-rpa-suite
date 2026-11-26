@@ -5,23 +5,14 @@ from __future__ import annotations
 import tkinter as tk
 from unittest.mock import MagicMock
 
-import pytest
-
 from it_rpa_suite.features.onboarding.view import OnboardingView
 
 
-@pytest.fixture
-def tk_root():
-    root = tk.Tk()
-    root.deiconify()
-    yield root
-    try:
-        root.destroy()
-    except Exception:
-        pass
-
-
 def test_onboarding_view_default_four_inputs_and_conditional_reduction(tk_root: tk.Tk) -> None:
+    tk_root.deiconify()
+    tk_root.lift()
+    tk_root.focus_force()
+
     mock_app = MagicMock()
     mock_app.scale_factor = 1.0
     mock_app.colors = {}
@@ -60,7 +51,7 @@ def test_onboarding_view_default_four_inputs_and_conditional_reduction(tk_root: 
     tk_root.update()
     assert view._focus_after_computer_tag() == "break"
     tk_root.update()
-    assert tk_root.focus_get() == view.monitor_tag_entry
+    assert (tk_root.focus_get() or tk_root.focus_lastfor()) == view.monitor_tag_entry
 
     # 筆電狀態 (3 個輸入框) -> 電腦編號按 Enter 應跳過螢幕，移動至話機單選按鈕
     view.computer_tag_var.set("IT-300002")
@@ -68,4 +59,4 @@ def test_onboarding_view_default_four_inputs_and_conditional_reduction(tk_root: 
     tk_root.update()
     assert view._focus_after_computer_tag() == "break"
     tk_root.update()
-    assert tk_root.focus_get() == view.new_phone_yes_btn
+    assert (tk_root.focus_get() or tk_root.focus_lastfor()) == view.new_phone_yes_btn

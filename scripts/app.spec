@@ -23,6 +23,7 @@ if not main_file.is_file():
 required_files = [
     project_dir / "assets" / "default_settings.json",
     project_dir / "assets" / "default_ticket_templates.json",
+    project_dir / "assets" / "sample_borrow_report.xlsx",
     project_dir / "assets" / "icons" / "Icon.ico",
     project_dir / "assets" / "icons" / "corner_icon.png",
     project_dir / "assets" / "icons" / "moon.png",
@@ -51,6 +52,8 @@ hiddenimports = sorted(
     set(
         [
             *collect_submodules("it_rpa_suite"),
+            # Excel (openpyxl)
+            *collect_submodules("openpyxl"),
             # Windows COM / DPAPI
             "pythoncom",
             "pywintypes",
@@ -92,6 +95,7 @@ if updater_exe_path.is_file():
 datas = [
     (str(project_dir / "assets" / "default_settings.json"), "assets"),
     (str(project_dir / "assets" / "default_ticket_templates.json"), "assets"),
+    (str(project_dir / "assets" / "sample_borrow_report.xlsx"), "assets"),
     (str(project_dir / "assets" / "icons" / "Icon.ico"), "assets/icons"),
     (str(project_dir / "assets" / "icons" / "corner_icon.png"), "assets/icons"),
     (str(project_dir / "assets" / "icons" / "moon.png"), "assets/icons"),
