@@ -36,10 +36,10 @@ class DashboardView(ttk.Frame):
         (
             "基礎作業",
             (
-                ("設備借還與聯查", "本專案的起源", "show_asset_loan"),
-                ("人員入職與離職", "鉤子功能（Hook Feature）", "show_onboarding"),
-                ("網路開通", "老式 frameset 網站", "show_nac_access"),
-                ("批量通知", "Excel 報表分析與寄信", "show_batch_notify"),
+                ("設備借用歸還", "本專案的起源", "show_asset_loan"),
+                ("員工入職離職", "鉤子功能（Hook Feature）", "show_onboarding"),
+                ("網路權限開通", "老式 frameset 網站", "show_nac_access"),
+                ("批量信件通知", "Excel 報表分析與寄信", "show_batch_notify"),
             ),
         ),
         (

@@ -180,7 +180,7 @@ flowchart LR
 
 ---
 
-### 4.2 老式 frameset / iframe 網站：網路開通模組
+### 4.2 老式 frameset / iframe 網站：網路權限開通模組
 
 - **背景**：企業內部的網路存取控制系統（NAC）常為老式多層 `iframe` / `frameset` 架構，且針對桌機（單一有線網卡）與筆電（有線 + 無線雙網卡）有不同的開通流程，傳統人工需先去資產系統查出設備 MAC Address 再手動複製貼上。
 - **解決方案**：
@@ -388,7 +388,7 @@ it-rpa-suite/
 │       └── updater.py                   # 三階段自我更新狀態機與 Zip Slip 安全解壓縮實作
 │
 ├── tests/                               # 自動化單元測試與 Playwright 端對端整合測試
-│   ├── test_asset_loan_validation.py    # 設備借還、入離職、網路開通與郵件降級之驗證與端對端測試
+│   ├── test_asset_loan_validation.py    # 設備借還、入離職、網路權限開通與郵件降級之驗證與端對端測試
 │   ├── test_onboarding_view.py          # 入離職介面筆電／桌機動態欄位與鍵盤導航測試
 │   ├── test_storage_and_paths.py        # 路徑解析、原子寫入、DPAPI 與 SQLite 效益計算測試
 │   ├── test_ticket_templates.py         # 工單模板 CRUD、占位符定位與批次開單測試
@@ -435,7 +435,7 @@ uv run pre-commit install
    - 加密憑證與當前 Windows 登入帳號強制綁定，若更換 Windows 使用者帳號需重新儲存。
 2. **能否正常執行基礎自動化功能**
    - 確認視窗底部狀態列右側顯示本機沙盒運行網址（預設自動掛載於 `Sandbox: http://127.0.0.1:8000`）。
-   - 切換至側邊欄「**設備借還與聯查**」，在資產編號欄位輸入範例編號 `300001`（或 `IT-300001`）加入清單，工號／單號欄位留白（自動判定為歸還與保管人聯查）並執行，驗證 Playwright 能否自動開啟 Edge 完成跨分頁反查與歸還準備。
+   - 切換至側邊欄「**設備借用歸還**」，在資產編號欄位輸入範例編號 `300001`（或 `IT-300001`）加入清單，工號／單號欄位留白（自動判定為歸還與保管人聯查）並執行，驗證 Playwright 能否自動開啟 Edge 完成跨分頁反查與歸還準備。
 3. **能否順利打包與觸發三階段更新**
    - 雙擊執行根目錄下的 `build_release.bat`（或執行 `powershell -ExecutionPolicy Bypass -File scripts/build_release.ps1`），確認可正常編譯並於 `released/ITRPASuite.zip` 產出發佈包。
    - 回到應用程式左側邊欄點擊「**檢查更新**」，驗證三階段自動更新流程是否可正常觸發並完成升級。
