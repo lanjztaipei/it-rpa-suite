@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import tkinter as tk
 from concurrent.futures import Future
 from pathlib import Path
@@ -184,10 +185,13 @@ def test_batch_notify_view_site_persistence_and_action_buttons(tmp_path: Path) -
         assert args[4] is paths
 
         view.destroy()
+        del view
         reopened = BatchNotifyView(root, app)
         assert reopened.site_var.get() == "台中總部"
         assert reopened.get_selected_site() == "台中總部"
         reopened.destroy()
+        del reopened
+        gc.collect()
     finally:
         root.destroy()
 

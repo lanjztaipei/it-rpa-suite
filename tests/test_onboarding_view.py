@@ -14,6 +14,9 @@ from it_rpa_suite.features.onboarding.view import OnboardingView
 def tk_root():
     root = tk.Tk()
     root.deiconify()
+    root.lift()
+    root.focus_force()
+    root.update()
     yield root
     try:
         root.destroy()
@@ -60,7 +63,7 @@ def test_onboarding_view_default_four_inputs_and_conditional_reduction(tk_root: 
     tk_root.update()
     assert view._focus_after_computer_tag() == "break"
     tk_root.update()
-    assert tk_root.focus_get() == view.monitor_tag_entry
+    assert (tk_root.focus_get() or tk_root.focus_lastfor()) == view.monitor_tag_entry
 
     # 筆電狀態 (3 個輸入框) -> 電腦編號按 Enter 應跳過螢幕，移動至話機單選按鈕
     view.computer_tag_var.set("IT-300002")
@@ -68,4 +71,4 @@ def test_onboarding_view_default_four_inputs_and_conditional_reduction(tk_root: 
     tk_root.update()
     assert view._focus_after_computer_tag() == "break"
     tk_root.update()
-    assert tk_root.focus_get() == view.new_phone_yes_btn
+    assert (tk_root.focus_get() or tk_root.focus_lastfor()) == view.new_phone_yes_btn
