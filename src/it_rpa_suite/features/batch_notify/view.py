@@ -87,7 +87,7 @@ class BatchNotifyView(ttk.Frame):
 
         ttk.Label(
             container,
-            text="批量通知",
+            text="批量信件通知",
             foreground=self.color_text,
             font=(FONT_FAMILY, self.s(22), "bold"),
             anchor="center",
@@ -290,7 +290,7 @@ class BatchNotifyView(ttk.Frame):
         self._set_status(f"正在下載並解析 {site} 逾期借用報表...", self.color_info)
         if hasattr(self.app, "update_browser_status"):
             self.app.update_browser_status(
-                f"瀏覽器自動化：正在執行 {site} 逾期借用批量通知...",
+                f"瀏覽器自動化：正在執行 {site} 逾期借用批量信件通知...",
                 state="running",
             )
 
@@ -327,11 +327,11 @@ class BatchNotifyView(ttk.Frame):
         try:
             result = self.current_future.result()
         except Exception as exc:
-            logger.exception("批量通知任務發生未預期錯誤")
+            logger.exception("批量信件通知任務發生未預期錯誤")
             if view_alive:
                 self._set_status(f"執行失敗：{exc}", self.color_error)
             if hasattr(self.app, "update_browser_status"):
-                self.app.update_browser_status("瀏覽器自動化：批量通知失敗", state="off")
+                self.app.update_browser_status("瀏覽器自動化：批量信件通知失敗", state="off")
         else:
             self._handle_service_result(result, view_alive=view_alive)
         finally:
@@ -361,4 +361,4 @@ class BatchNotifyView(ttk.Frame):
             if view_alive:
                 self._set_status(error_text, self.color_error)
             if hasattr(self.app, "update_browser_status"):
-                self.app.update_browser_status("瀏覽器自動化：批量通知失敗", state="off")
+                self.app.update_browser_status("瀏覽器自動化：批量信件通知失敗", state="off")

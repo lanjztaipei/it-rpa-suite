@@ -668,10 +668,10 @@ class MainSidebar(tk.Frame):
             "主選單",
             (
                 ("dashboard", "首頁總覽", "show_dashboard"),
-                ("asset_loan", "設備借還與聯查", "show_asset_loan"),
-                ("onboarding", "人員入職與離職", "show_onboarding"),
-                ("nac_access", "網路開通", "show_nac_access"),
-                ("batch_notify", "批量通知", "show_batch_notify"),
+                ("asset_loan", "設備借用歸還", "show_asset_loan"),
+                ("onboarding", "員工入職離職", "show_onboarding"),
+                ("nac_access", "網路權限開通", "show_nac_access"),
+                ("batch_notify", "批量信件通知", "show_batch_notify"),
             ),
         ),
         (

@@ -140,7 +140,7 @@ class NacAccessView(ttk.Frame):
 
         self.run_button = create_primary_button(
             btn_frame,
-            text="執行網路開通",
+            text="執行網路權限開通",
             command=self._start_operation,
         )
         self.run_button.pack(side="left")
@@ -192,7 +192,7 @@ class NacAccessView(ttk.Frame):
 
     def _start_operation(self) -> None:
         if self.current_future is not None and not self.current_future.done():
-            self.app.set_global_status("目前已有網路開通工作正在執行中")
+            self.app.set_global_status("目前已有網路權限開通工作正在執行中")
             return
 
         val = validate_nac_asset_input(self.asset_tag_var.get())
@@ -233,7 +233,7 @@ class NacAccessView(ttk.Frame):
             self.color_info,
         )
         self.app.update_browser_status(
-            f"瀏覽器自動化：正在執行網路開通 ({full_tag})...",
+            f"瀏覽器自動化：正在執行網路權限開通 ({full_tag})...",
             state="running",
         )
         self._toplevel.after(150, self._poll_future)
@@ -261,13 +261,13 @@ class NacAccessView(ttk.Frame):
         try:
             result = self.current_future.result()
         except Exception as exc:
-            logger.exception("網路開通任務發生未預期錯誤")
+            logger.exception("網路權限開通任務發生未預期錯誤")
             if view_alive:
                 self._set_status(f"執行失敗：{exc}", self.color_error)
             self.app.update_browser_status("瀏覽器自動化：任務執行失敗", state="off")
             messagebox.showerror(
                 "執行失敗",
-                f"執行網路開通時發生未預期錯誤：\n\n{exc}",
+                f"執行網路權限開通時發生未預期錯誤：\n\n{exc}",
                 parent=self if view_alive else self._toplevel,
             )
         else:
