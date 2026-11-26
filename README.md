@@ -1,84 +1,50 @@
 # IT RPA Suite (IT 自動化助手)
 
-以 Python 開發桌面自動化工具，將繁瑣的企業 IT 維運操作，轉化為高效率的自動化流程。
+[![CI](https://github.com/lanjztaipei/it-rpa-suite/actions/workflows/ci.yml/badge.svg)](https://github.com/lanjztaipei/it-rpa-suite/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![Ruff](https://img.shields.io/badge/code%20style-ruff-261230?logo=ruff&logoColor=white)
+![Mypy](https://img.shields.io/badge/type%20check-mypy-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-專案由個人從零開始、建立最小可行產品（MVP），逐步演進為支援多名 IT 人員使用的 GUI 應用程式。
+Windows GUI 桌面應用程式，將企業 IT 的繁瑣日常維運，轉化為高效率的自動化流程。
 
-## 專案成果
-
-- 導入 3 個廠區，共 8 位 IT 人員實際使用
-- 每位使用者每月平均節省超過 1,200 分鐘
-
-## 主要技術
-
-- 網頁自動化（Playwright）、Windows 桌面控制（pywinauto、pywin32）
-- GUI 介面（Tkinter / ttk）、專屬執行緒分離、FIFO 任務佇列、瀏覽器延遲啟動（Lazy Initialization）
-- 跨系統資料擷取與自動化通知（Outlook COM 郵件草稿、內建 HTML 安全預覽降級）
-- 本機資料儲存（SQLite）、Windows DPAPI 憑證保護、設定檔原子寫入（Atomic Write）
-- 內建的本機 Mock HTTP Server、執行檔一鍵發布及三階段自我更新機制
-
-## Quick Start
-
-需求環境：Windows 10/11、Python 3.12（由 `.python-version` 鎖定）、[`uv`](https://docs.astral.sh/uv/)、Microsoft Edge。
-
-```powershell
-# 1. 建立虛擬環境並安裝正式與開發依賴
-uv sync
-
-# 2. 啟動應用程式（自動掛載內建離線 Mock Server）
-uv run python main.py
-
-# 3. 安裝本機 Git pre-commit Hook（選用但建議）
-uv run pre-commit install
-```
-
-### 本機品質檢查指令（與 CI 保持一致）
-
-```powershell
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy src tools
-uv run pytest
-uv run pip-audit
-```
+由個人從零開始逐步迭代，最後導入 3 個廠區 8 位同事使用，每人每月至少節省 20 小時，並大幅減少出錯機會。
 
 ---
 
-## 快速導覽目錄
+## 系統架構與核心技術
 
-- [1. 專案概述](#section-1)
-- [2. 里程碑功能](#section-2)
-  - [2.1 專案的起源：設備借用、歸還與保管人反查](#section-2-1)
-  - [2.2 鉤子功能（Hook Feature）：新人到職出庫、離職全套辦理](#section-2-2)
-  - [2.3 加速開發與團隊賦能：腳本工具箱](#section-2-3)
-  - [2.4 圖形化介面最受益的功能：自動化開立工單](#section-2-4)
-- [3. 重點功能](#section-3)
-  - [3.1 背景來電即時身分識別](#section-3-1)
-  - [3.2 Playwright 專屬執行緒與序列化任務佇列](#section-3-2)
-  - [3.3 內建 Mock Server](#section-3-3)
-  - [3.4 三階段自動更新機制](#section-3-4)
-- [4. 其他功能](#section-4)
-  - [4.1 量化效益儀表板](#section-4-1)
-  - [4.2 老式 frameset / iframe 網站：網路開通模組](#section-4-2)
-  - [4.3 Outlook 郵件草稿與內建 HTML 預覽降級](#section-4-3)
-  - [4.4 Windows DPAPI 本機安全憑證庫](#section-4-4)
-  - [4.5 一鍵打包與自動發布](#section-4-5)
-  - [4.6 自適應視窗縮放與深淺色主題](#section-4-6)
-- [5. 專案演進與版本歷程](#section-5)
-  - [ver1：最小可行產品驗證（MVP）](#section-5-1)
-  - [ver2：改善使用體驗、增加迭代效率](#section-5-2)
-  - [ver3：實務部署、多人使用](#section-5-3)
-  - [ver4：模組化、工程化重構](#section-5-4)
-  - [ver5：轉型 GUI 與 UI/UX 現代化](#section-5-5)
-  - [未來規劃：穩定性強化、新人教育訓練、引入數據分析與 AI 應用](#section-5-6)
-- [6. 系統架構與開發指南](#section-6)
-  - [6.1 系統總體架構圖](#section-6-1)
-  - [6.2 專案目錄結構](#section-6-2)
-  - [6.3 接手開發指南](#section-6-3)
-    - [6.3.1 建議開發環境](#section-6-3-1)
-    - [6.3.2 啟動與基本驗證](#section-6-3-2)
+專案採分層模組化（View / Service / Adapter）搭配執行緒與子行程隔離架構，兼顧畫面流暢、自動化穩定與外掛擴充彈性：
 
-<a id="section-1"></a>
+```mermaid
+flowchart LR
+    UI["Tkinter GUI (主執行緒)"]
+    Worker["自動化佇列 (FIFO 單執行緒)"]
+    Caller["來電監聽 (pywinauto)"]
+    Toolbox["自訂工具箱 (獨立子行程)"]
+    Svc["Business Services (IT 維運)"]
+    Adapters["Adapters (DPAPI / SQLite / outlook / excel)"]
+    Portals["企業系統 / 離線沙盒"]
+
+    UI <-->|"Future / after()"| Worker
+    UI -->|"Popen + Env 注入"| Toolbox
+    UI <-->|"啟閉 / after(0) 來電通知"| Caller
+    UI -.->|"設定 / KPI"| Adapters
+
+    Worker -->|"共用 BrowserSession"| Svc
+    Svc --> Adapters
+    Svc -->|"Playwright"| Portals
+    Toolbox -.->|"共用 DPAPI 憑證"| Adapters
+    Toolbox -->|"獨立自動化流程"| Portals
+    Caller -->|"Directory API"| Portals
+```
+
+- **UI/UX 體驗**：以 Tkinter / ttk 打造現代化極簡介面，支援自適應縮放與深淺色主題切換。
+- **憑證與資料保護**：帳密透過 Windows DPAPI 綁定本機帳號加密保存；設定檔採用原子寫入防止寫入毀損。
+- **快速發佈與更新**：結合 GitHub 自動化品質檢查、開發者一鍵發佈流程與使用者一鍵更新機制。
+- **離線沙盒驗證**：內建本機 Mock HTTP Server 完整模擬企業系統，免連內網即可體驗與執行 E2E 測試。
+
+---
 
 ## 1. 專案概述
 
@@ -92,11 +58,7 @@ uv run pip-audit
 
 ---
 
-<a id="section-2"></a>
-
 ## 2. 里程碑功能
-
-<a id="section-2-1"></a>
 
 ### 2.1 專案的起源：設備借用、歸還與保管人反查
 
@@ -118,8 +80,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-2-2"></a>
-
 ### 2.2 鉤子功能（Hook Feature）：新人到職出庫、離職全套辦理
 
 - **特點**：最好學、最實用、最吸引人的模組（離職辦理時間從 15 分鐘降至 5 分鐘）。
@@ -137,8 +97,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-2-3"></a>
-
 ### 2.3 加速開發與團隊賦能：腳本工具箱
 
 - **背景**：有些自動化模組還在概念驗證／測試階段，或是屬於特定專案、只有少數人在使用的情境，暫時不適合直接整合進主程式核心介面中。
@@ -151,8 +109,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-2-4"></a>
-
 ### 2.4 圖形化介面最受益的功能：自動化開立工單
 
 - **特點**：實務上累積節省最多時間的功能，並且大幅提升部門的帳面績效。
@@ -163,24 +119,18 @@ uv run pip-audit
 
 ---
 
-<a id="section-3"></a>
-
 ## 3. 重點功能
-
-<a id="section-3-1"></a>
 
 ### 3.1 背景來電即時身分識別
 
 - **背景**：公司內部通訊軟體彈出的來電視窗僅顯示分機或簡短代號，未顯示完整部門與姓名資訊。在未知來電者的壓力下，許多人容易猶豫或漏接；即使主動打開企業電話簿網站查詢，往往查完時電話已經掛斷，還得另外回撥或等待對方重撥。
 - **解決方案**：
-  - **Windows 桌面 UI 監聽**：採用 `pywinauto`（UIA backend）啟動背景 daemon 執行緒，定時輪詢桌面頂層視窗，即時辨識標題包含「來電通知」、「來電自」或「Incoming Call」關鍵字的視窗。
+  - **Windows 桌面 UI 監看**：採用 `pywinauto`（UIA backend）啟動背景 daemon 執行緒，定時輪詢桌面頂層視窗，即時辨識標題包含「來電通知」、「來電自」或「Incoming Call」關鍵字的視窗。
   - **文字清洗與目錄反查**：從視窗控制項樹中自動擷取來電字串，正規化移除前綴並提取分機號碼或工號，隨即查詢企業目錄 API（`/api/directory`）。
   - **無邊框置頂懸浮通知（`CallerToast`）**：將查出的來電同仁姓名、工號、部門、職稱、分機／座位與直屬主管資訊，以無邊框卡片置頂顯示於螢幕右上角，並在 8 秒後自動關閉，不搶奪使用者當前的鍵盤焦點。
-  - **功能開關與模擬測試**：使用者可隨時透過側邊欄或首頁的切換開關（`ToggleSwitch`）啟閉背景監聽，並內建「📞 觸發模擬來電」按鈕，可在離線環境一鍵產生模擬來電視窗驗證完整識別流程。
+  - **功能開關與模擬測試**：使用者可隨時透過側邊欄或首頁的切換開關（`ToggleSwitch`）啟閉背景監看，並內建「📞 觸發模擬來電」按鈕，可在離線環境一鍵產生模擬來電視窗驗證完整識別流程。
 
 ---
-
-<a id="section-3-2"></a>
 
 ### 3.2 Playwright 專屬執行緒與序列化任務佇列
 
@@ -192,8 +142,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-3-3"></a>
-
 ### 3.3 內建 Mock Server
 
 - **背景**：在本地開發、自動化測試或專案展示時，執行環境無法（也不應）連線至企業內部真實生產網路。
@@ -202,8 +150,6 @@ uv run pip-audit
   2. 完整模擬本專案自動化流程所需的 8 大企業系統端點——包含**資產出庫**（`/portal/assets/issue`）、**資產歸還**（`/portal/assets/return`）、**資產查詢與新分頁明細**（`/portal/assets/search`、`/portal/assets/detail`）、**企業員工電話簿與 API**（`/portal/directory`、`/api/directory`）、**人事離職系統**（`/portal/hr/offboarding`）、**電信分機管理**（`/portal/telecom/extensions`）、**NAC 雙層 iframe 網路控制台**（`/network/console`）與 **IT 服務台工單系統**（`/servicedesk/new`），使所有自動化流程皆可在離線環境中 100% 端對端獨立運作與驗證。
 
 ---
-
-<a id="section-3-4"></a>
 
 ### 3.4 三階段自動更新機制
 
@@ -220,11 +166,7 @@ uv run pip-audit
 
 ---
 
-<a id="section-4"></a>
-
 ## 4. 其他功能
-
-<a id="section-4-1"></a>
 
 ### 4.1 量化效益儀表板
 
@@ -238,8 +180,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-4-2"></a>
-
 ### 4.2 老式 frameset / iframe 網站：網路開通模組
 
 - **背景**：企業內部的網路存取控制系統（NAC）常為老式多層 `iframe` / `frameset` 架構，且針對桌機（單一有線網卡）與筆電（有線 + 無線雙網卡）有不同的開通流程，傳統人工需先去資產系統查出設備 MAC Address 再手動複製貼上。
@@ -249,8 +189,6 @@ uv run pip-audit
   3. **彈出視窗攔截與批次授權**：透過 Playwright `expect_popup()` 攔截「變更存取權限」彈出視窗，自動選取「IT 維修放行（Repair Access）」並填入稽核備註，一次完成單／雙網卡開通。
 
 ---
-
-<a id="section-4-3"></a>
 
 ### 4.3 Outlook 郵件草稿與內建 HTML 預覽降級
 
@@ -262,8 +200,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-4-4"></a>
-
 ### 4.4 Windows DPAPI 本機安全憑證庫
 
 - **背景**：自動化工具需要保存使用者的企業入口網與網管系統帳密，若以明文或簡易編碼（如 Base64）儲存於本機硬碟，將帶來嚴重的憑證外洩風險。
@@ -274,14 +210,12 @@ uv run pip-audit
 
 ---
 
-<a id="section-4-5"></a>
+### 4.5 一鍵打包與自動發佈
 
-### 4.5 一鍵打包與自動發布
+專案提供完整的自動化編譯與發佈腳本，無須手動拼湊 PyInstaller 指令：
 
-專案提供完整的自動化編譯與發布腳本，無須手動拼湊 PyInstaller 指令：
-
-- **一鍵發布批次檔**：雙擊根目錄下的 `build_release.bat`，將自動呼叫 PowerShell 打包腳本。
-- **發布腳本流程（`scripts/build_release.ps1`）**：
+- **一鍵發佈批次檔**：雙擊根目錄下的 `build_release.bat`，將自動呼叫 PowerShell 打包腳本。
+- **發佈腳本流程（`scripts/build_release.ps1`）**：
   1. 檢查 `scripts/app.spec` 打包配置與 `tools/updater/updater.py` 原始碼。
   2. 先以單一執行檔模式（`--onefile`）編譯獨立更新器 `updater.exe`。
   3. 執行 `PyInstaller --noconfirm scripts/app.spec` 進行主程式單目錄（One-Folder）編譯，將預設設定檔（`assets/`）、更新器與 `tools/tool_sdk.py` 完整封裝至 `_internal/`。
@@ -289,18 +223,14 @@ uv run pip-audit
 
 ---
 
-<a id="section-4-6"></a>
-
 ### 4.6 自適應視窗縮放與深淺色主題
 
 - **背景**：企業內部電腦螢幕解析度與 Windows 顯示比例差異極大，傳統固定像素的 Tkinter 介面容易在高解析度螢幕顯得過小，或在小螢幕發生版面裁切。
 - **解決方案**：
-  1. **DPI 感知與防抖動態縮放**：啟動時開啟 Windows Per-Monitor DPI Awareness，並以 `1180×760` 為基準解析度監聽視窗 `<Configure>` 事件；透過 180 ms 防抖機制（Debounce）與 5%（`0.05`）量化級距動態計算縮放倍率，支援 `0.75×` 至 `2.00×` 的字型與元件間距平滑重繪。
+  1. **DPI 感知與防抖動態縮放**：啟動時開啟 Windows Per-Monitor DPI Awareness，並以 `1180×760` 為基準解析度看視窗 `<Configure>` 事件；透過 180 ms 防抖機制（Debounce）與 5%（`0.05`）量化級距動態計算縮放倍率，支援 `0.75×` 至 `2.00×` 的字型與元件間距平滑重繪。
   2. **深淺色主題即時切換**：內建淺色（Light）與深色（Dark）兩套完整色彩語意系統（`ThemeManager`），點擊側邊欄主題按鈕即可即時切換全視窗與自繪 Canvas 元件配色，並自動持久化保存於 `data/settings.json`。
 
 ---
-
-<a id="section-5"></a>
 
 ## 5. 專案演進與版本歷程
 
@@ -316,8 +246,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-5-1"></a>
-
 ### ver1：最小可行產品驗證（MVP）
 
 - 耗時：3 天
@@ -332,15 +260,13 @@ uv run pip-audit
 
 ---
 
-<a id="section-5-2"></a>
-
 ### ver2：改善使用體驗、增加迭代效率
 
 - 耗時：15 天
 - 目標：在快速迭代的同時，逐步提升可用性，並逐漸實際融入個人日常工作使用
 - 成果：
   - 引入 OpenCV 圖像識別，處理部分無法直接控制的網頁操作
-  - 建立初次使用的初始化流程，並調整程式打包與發布方式，改善迭代效率
+  - 建立初次使用的初始化流程，並調整程式打包與發佈方式，改善迭代效率
   - 重構程式碼，改善執行效能與可維護性
 - 影響：
   - 開始具備實際使用價值，提升使用體驗，降低學習門檻
@@ -348,14 +274,12 @@ uv run pip-audit
 
 ---
 
-<a id="section-5-3"></a>
-
 ### ver3：實務部署、多人使用
 
 - 耗時：40 天
 - 目標：工具進入多人使用階段，處理相容性、版本更新問題，並融入同事的建議
 - 成果：
-  - 新增自動發布、更新機制，降低版本維護與手動派發成本，不需要再頻繁溝通安裝步驟
+  - 新增自動發佈、更新機制，降低版本維護與手動派發成本，不需要再頻繁溝通安裝步驟
   - 支援跨系統資料擷取與分析，並依據結果自動撰寫 Outlook 草稿
   - 使用 pywinauto 監控電腦來電彈窗，並串接企業電話簿系統執行背景查詢
 - 影響：
@@ -363,8 +287,6 @@ uv run pip-audit
   - 更多同事參與使用與回饋後，我獲得了更多靈感與熱情，持續精進並修正盲點
 
 ---
-
-<a id="section-5-4"></a>
 
 ### ver4：模組化、工程化重構
 
@@ -380,8 +302,6 @@ uv run pip-audit
 
 ---
 
-<a id="section-5-5"></a>
-
 ### ver5：轉型 GUI 與 UI/UX 現代化
 
 - 耗時：35 天
@@ -396,14 +316,12 @@ uv run pip-audit
 
 ---
 
-<a id="section-5-6"></a>
-
 ### 未來規劃：穩定性強化、新人教育訓練、引入數據分析與 AI 應用
 
 - 穩定性強化：
   - 建立核心流程的端對端測試，縮短版本驗證時間
   - 建立單點錯誤重試機制，減少偶發性失敗造成的流程中斷
-  - 主動提醒更新，並依據使用者目前的版本號執行對應的更新程序，提升版本發布效率與相容性
+  - 主動提醒更新，並依據使用者目前的版本號執行對應的更新程序，提升版本發佈效率與相容性
   - 逐漸把各項參數從程式碼裡面抽出成可輕鬆編輯的環境設定檔
 - 新人教育訓練：
   - 自動化程式本身就是最標準的 SOP 紀錄，能快速做成新人教材
@@ -414,53 +332,16 @@ uv run pip-audit
 
 ---
 
-<a id="section-6"></a>
+## 6. 目錄結構與開發指南
 
-## 6. 系統架構與開發指南
-
-<a id="section-6-1"></a>
-
-### 6.1 系統總體架構圖
-
-```text
-┌──────────────────────────────────────────────────────────────────────┐
-│                       使用者介面層 (UI / App)                         │
-│  Tkinter / ttk 主視窗、各功能 View、效益儀表板、憑證設定與自訂工具箱     │
-└───────────────────────────────┬──────────────────────────────────────┘
-                                │ 派送任務 / 非同步回傳 ServiceResult
-┌───────────────────────────────▼──────────────────────────────────────┐
-│                    任務調度與背景服務層                                │
-│  AutomationWorker (Playwright 佇列)、CallerIdMonitor、Mock Server     │
-└───────────────────────────────┬──────────────────────────────────────┘
-                                │ 呼叫業務流程
-┌───────────────────────────────▼──────────────────────────────────────┐
-│                     核心業務服務層 (Features)                         │
-│  設備借還｜入職與離職｜網路開通｜服務台工單｜來電識別｜自訂工具箱          │
-└───────────────────────────────┬──────────────────────────────────────┘
-                                │ 使用共用技術配接器
-┌───────────────────────────────▼──────────────────────────────────────┐
-│                   共用技術與資料層 (Adapters)                         │
-│  Playwright｜SQLite｜Outlook COM / HTML 預覽｜Windows DPAPI｜pywinauto │
-└───────────────────────────────┬──────────────────────────────────────┘
-                                │ 連接與操作
-┌───────────────────────────────▼──────────────────────────────────────┐
-│                    企業系統與本機沙盒測試環境                          │
-│  資產管理、人事異動、電話簿、電信分機、NAC 網管、IT 服務台、Mock Server │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-<a id="section-6-2"></a>
-
-### 6.2 專案目錄結構
+### 6.1 專案目錄結構
 
 ```plaintext
 it-rpa-suite/
 │
 ├── main.py                              # 主程式進入點：環境初始化與啟動引導
 ├── pyproject.toml                       # 專案套件依賴、打包與測試規範配置
-├── build_release.bat                    # 一鍵快速打包與發布批次檔
+├── build_release.bat                    # 一鍵快速打包與發佈批次檔
 │
 ├── scripts/                             # 打包與編譯腳本目錄
 │   ├── app.spec                         # PyInstaller 單目錄（onedir）打包規範配置檔
@@ -483,7 +364,7 @@ it-rpa-suite/
 │   │   ├── onboarding/                  # 新人到職標準出庫、離職跨系統查核與權限停用郵件通知
 │   │   ├── nac_access/                  # NAC 網路存取控制（雙層 iframe 穿透與單／雙網卡開通）
 │   │   ├── ticket_helper/               # 服務台工單模板管理、拖曳排序與 __ 佔位符批次開單
-│   │   ├── caller_id/                   # 背景桌面來電視窗 UIA 監聽與企業目錄即時識別
+│   │   ├── caller_id/                   # 背景桌面來電視窗 UIA 監看與企業目錄即時識別
 │   │   ├── toolbox/                     # 自訂工具箱動態掃描與非同步子程序啟動介面
 │   │   └── credentials/                 # 系統帳號密碼設定與 Windows DPAPI 加解密介面
 │   │
@@ -524,35 +405,29 @@ it-rpa-suite/
 
 ---
 
-<a id="section-6-3"></a>
+### 6.2 快速開始與開發指南
 
-### 6.3 接手開發指南
-
-<a id="section-6-3-1"></a>
-
-#### 6.3.1 建議開發環境
+#### 6.2.1 環境需求與快速啟動（Quick Start）
 
 - **作業系統**：Windows 10 或 Windows 11。
-- **Python 版本**：Python 3.10 以上（開發環境以 `.python-version` 鎖定 Python 3.12，建議搭配 [`uv`](https://docs.astral.sh/uv/) 管理）。
+- **Python 版本**：Python 3.10 以上（開發環境以 `.python-version` 鎖定 Python 3.12，搭配 [`uv`](https://docs.astral.sh/uv/) 管理）。
 - **瀏覽器**：Microsoft Edge（供 Playwright 自動化流程使用）。
 - **選配軟體**：Microsoft Outlook 桌面版（供 COM 郵件草稿功能使用；若未安裝，系統會自動降級使用內建的 HTML 預覽視窗，不影響流程執行）。
 
-首次取得專案後，建議在根目錄透過 `uv` 建立乾淨虛擬環境並同步依賴套件（含 `[dependency-groups] dev`）：
-
 ```powershell
+# 1. 建立虛擬環境並同步正式與開發依賴（含 [dependency-groups] dev）
 uv sync
+
+# 2. 啟動應用程式（自動掛載內建離線 Mock Server）
+uv run python main.py
+
+# 3. 安裝本機 Git pre-commit Hook（選用但建議）
 uv run pre-commit install
 ```
 
-<a id="section-6-3-2"></a>
+#### 6.2.2 啟動後功能驗證
 
-#### 6.3.2 啟動與基本驗證
-
-```powershell
-uv run python main.py
-```
-
-啟動後可依序確認以下項目：
+啟動應用程式後可依序確認以下項目：
 
 1. **能否正常開啟應用程式與設定憑證**
    - 首次啟動且尚未設定憑證時，應用程式會自動引導至「**系統憑證設定**」畫面。
@@ -561,10 +436,16 @@ uv run python main.py
 2. **能否正常執行基礎自動化功能**
    - 確認視窗底部狀態列右側顯示本機沙盒運行網址（預設自動掛載於 `Sandbox: http://127.0.0.1:8000`）。
    - 切換至側邊欄「**設備借還與聯查**」，在資產編號欄位輸入範例編號 `300001`（或 `IT-300001`）加入清單，工號／單號欄位留白（自動判定為歸還與保管人聯查）並執行，驗證 Playwright 能否自動開啟 Edge 完成跨分頁反查與歸還準備。
-3. **能否順利執行測試、打包與三階段更新**
-   - 執行自動化測試套件確認所有驗證與覆蓋率門檻通過：
-     ```powershell
-     uv run pytest
-     ```
-   - 雙擊執行根目錄下的 `build_release.bat`（或執行 `powershell -ExecutionPolicy Bypass -File scripts/build_release.ps1`），確認可正常編譯並於 `released/ITRPASuite.zip` 產出發布包。
+3. **能否順利打包與觸發三階段更新**
+   - 雙擊執行根目錄下的 `build_release.bat`（或執行 `powershell -ExecutionPolicy Bypass -File scripts/build_release.ps1`），確認可正常編譯並於 `released/ITRPASuite.zip` 產出發佈包。
    - 回到應用程式左側邊欄點擊「**檢查更新**」，驗證三階段自動更新流程是否可正常觸發並完成升級。
+
+#### 6.2.3 本機品質檢查指令（與 CI 保持一致）
+
+```powershell
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy src tools
+uv run pytest
+uv run pip-audit
+```

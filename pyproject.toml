@@ -47,7 +47,6 @@ dependencies = [
 Homepage = "https://github.com/lanjztaipei/it-rpa-suite"
 Repository = "https://github.com/lanjztaipei/it-rpa-suite"
 Issues = "https://github.com/lanjztaipei/it-rpa-suite/issues"
-Changelog = "https://github.com/lanjztaipei/it-rpa-suite/blob/main/CHANGELOG.md"
 
 [project.scripts]
 it-rpa-suite = "it_rpa_suite.app.bootstrap:main"
