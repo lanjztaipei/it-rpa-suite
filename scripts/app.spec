@@ -24,6 +24,7 @@ required_files = [
     project_dir / "assets" / "default_settings.json",
     project_dir / "assets" / "default_ticket_templates.json",
     project_dir / "assets" / "sample_borrow_report.xlsx",
+    project_dir / "assets" / "sample_form_audit_report.xlsx",
     project_dir / "assets" / "icons" / "Icon.ico",
     project_dir / "assets" / "icons" / "corner_icon.png",
     project_dir / "assets" / "icons" / "moon.png",
@@ -67,6 +68,7 @@ hiddenimports = sorted(
             "win32com.server.util",
             # Playwright
             "playwright",
+            "playwright.async_api",
             "playwright.sync_api",
             "playwright._impl",
             "playwright._impl._driver",
@@ -96,6 +98,7 @@ datas = [
     (str(project_dir / "assets" / "default_settings.json"), "assets"),
     (str(project_dir / "assets" / "default_ticket_templates.json"), "assets"),
     (str(project_dir / "assets" / "sample_borrow_report.xlsx"), "assets"),
+    (str(project_dir / "assets" / "sample_form_audit_report.xlsx"), "assets"),
     (str(project_dir / "assets" / "icons" / "Icon.ico"), "assets/icons"),
     (str(project_dir / "assets" / "icons" / "corner_icon.png"), "assets/icons"),
     (str(project_dir / "assets" / "icons" / "moon.png"), "assets/icons"),

@@ -7,6 +7,7 @@ import json
 import os
 import socket
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -21,6 +22,9 @@ from it_rpa_suite.mock_server.pages import (
     render_asset_search_page,
     render_borrow_report_page,
     render_directory_page,
+    render_form_detail_frame,
+    render_form_view_page,
+    render_forms_login_page,
     render_home_page,
     render_hr_offboarding_page,
     render_nac_console_page,
@@ -32,6 +36,20 @@ from it_rpa_suite.mock_server.pages import (
 )
 
 logger = get_logger(__name__)
+
+DEFAULT_FORM_FRAME_DELAY_MS = 40
+
+
+def _resolve_form_delay_ms(query_override: str = "") -> int:
+    """Resolve simulated server latency in milliseconds for `/portal/forms/frame`."""
+    raw = (query_override or os.environ.get("IT_SUITE_MOCK_FORM_DELAY_MS", "")).strip()
+    if not raw:
+        return DEFAULT_FORM_FRAME_DELAY_MS
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_FORM_FRAME_DELAY_MS
+    return max(0, min(value, 5000))
 
 
 class _ExclusiveThreadingHTTPServer(ThreadingHTTPServer):
@@ -203,6 +221,29 @@ def _make_handler_class(state: SandboxState) -> type[BaseHTTPRequestHandler]:
                     self._send_html("Sample report file not found", status=404)
                     return
                 self._send_xlsx_bytes(report_path.read_bytes(), report_path.name)
+                return
+
+            if route == "/portal/forms/login":
+                self._send_html(render_forms_login_page(state, is_authenticated=authed))
+                return
+
+            if route == "/portal/forms/view":
+                form_no = query.get("id", [""])[0]
+                self._send_html(
+                    render_form_view_page(state, form_no=form_no, is_authenticated=authed)
+                )
+                return
+
+            if route == "/portal/forms/frame":
+                delay_ms = _resolve_form_delay_ms(query.get("delay_ms", [""])[0])
+                if delay_ms > 0:
+                    time.sleep(delay_ms / 1000.0)
+                form_no = query.get("id", [""])[0]
+                status_code = 200 if authed else 401
+                self._send_html(
+                    render_form_detail_frame(state, form_no=form_no, is_authenticated=authed),
+                    status=status_code,
+                )
                 return
 
             self._send_html(render_home_page(state), status=404)

@@ -250,6 +250,66 @@ INITIAL_EXTENSIONS: list[dict[str, str]] = [
     },
 ]
 
+AUDIT_FORM_COUNT = 1000
+_AUDIT_SITES = ("台中總部", "台北廠", "新北廠", "桃園廠", "台南廠", "高雄廠")
+_AUDIT_APPLICANTS = (
+    "EMP101 陳建宏",
+    "EMP102 林雅婷",
+    "EMP103 王柏翰",
+    "EMP104 張心怡",
+    "EMP105 周明德",
+    "EMP106 黃佳穎",
+    "EMP107 劉俊傑",
+    "EMP108 許怡君",
+    "EMP109 鄭雅文",
+    "EMP110 謝冠宇",
+    "EMP111 洪佩珊",
+    "EMP112 蘇家豪",
+)
+_AUDIT_REQUEST_TYPES = (
+    "VPN 遠端存取",
+    "資料庫唯讀權限",
+    "網段放行申請",
+    "ERP 模組授權",
+    "雲端帳號開通",
+    "檔案伺服器權限",
+)
+_AUDIT_COMMENT_TEMPLATES = (
+    "已確認直屬主管同意，待補簽資安連線切結書",
+    "需指定對應 Schema 與到期日，已退請申請人補件",
+    "跨 VLAN 測試需求已通過資安初審，排程變更中",
+    "授權席次待系統管理者釋出後開通",
+    "專案成本中心代碼待確認，已電聯窗口補登",
+    "部門共享資料夾屬機密等級，轉請單位主管覆核",
+    "外勤支援短期連線，MFA 裝置已完成綁定",
+    "稽核報表查詢用途，預定本週五前完成授權",
+    "新任窗口接替原權限，舊帳號同步排程停用",
+    "產線量測機台對接 MES，等待廠務停機視窗套用",
+    "已建置測試環境角色，待申請人確認登入正常",
+    "專案結案移交資料夾，已開立唯讀權限供備查",
+)
+
+
+def _build_initial_audit_forms(count: int = AUDIT_FORM_COUNT) -> dict[str, dict[str, str]]:
+    """Deterministically generate `count` desensitized overdue form records (`FRM-1001`..)."""
+    forms: dict[str, dict[str, str]] = {}
+    for idx in range(count):
+        form_no = f"FRM-{1001 + idx}"
+        req_type = _AUDIT_REQUEST_TYPES[idx % len(_AUDIT_REQUEST_TYPES)]
+        comment_base = _AUDIT_COMMENT_TEMPLATES[idx % len(_AUDIT_COMMENT_TEMPLATES)]
+        forms[form_no] = {
+            "form_no": form_no,
+            "site": _AUDIT_SITES[idx % len(_AUDIT_SITES)],
+            "applicant": _AUDIT_APPLICANTS[idx % len(_AUDIT_APPLICANTS)],
+            "days_overdue": str(4 + (idx % 12)),
+            "request_type": req_type,
+            "review_comment": f"[{form_no}] {comment_base}",
+        }
+    return forms
+
+
+INITIAL_AUDIT_FORMS: dict[str, dict[str, str]] = _build_initial_audit_forms()
+
 
 class SandboxState:
     """Thread-safe in-memory state container for the enterprise IT sandbox."""
@@ -262,6 +322,7 @@ class SandboxState:
         self.assets: dict[str, dict[str, str]] = copy.deepcopy(INITIAL_ASSETS)
         self.accessories: dict[str, dict[str, str]] = copy.deepcopy(STANDARD_ACCESSORIES)
         self.extensions: list[dict[str, str]] = copy.deepcopy(INITIAL_EXTENSIONS)
+        self.audit_forms: dict[str, dict[str, str]] = copy.deepcopy(INITIAL_AUDIT_FORMS)
         self.nac_policies: dict[str, str] = {}
 
     def query_directory(self, keyword: str) -> list[dict[str, str]]:
@@ -477,6 +538,7 @@ def render_home_page(state: SandboxState) -> str:
         <a class="btn secondary" href="/network/console">7. 網管控制台 (/network/console)</a>
         <a class="btn secondary" href="/servicedesk/new?template=incident">8. IT 服務台開單 (/servicedesk/new)</a>
         <a class="btn secondary" href="/portal/reports/borrow-overdue">9. 逾期借用報表中心 (/portal/reports/borrow-overdue)</a>
+        <a class="btn secondary" href="/portal/forms/login">10. 簽核表單查詢中心 (/portal/forms/login)</a>
       </div>
     </div>
     <div class="card">
@@ -2104,3 +2166,148 @@ def render_borrow_report_page(is_authenticated: bool) -> str:
         "模擬企業報表網站匯出 Excel 檔案供 Playwright 攔截下載 (/portal/reports/borrow-overdue)",
         _render_portal_login_gate(is_authenticated, workspace),
     )
+
+
+def render_forms_login_page(state: SandboxState, is_authenticated: bool) -> str:
+    """Render Workflow eForm Portal login & form index page (/portal/forms/login)."""
+    total_forms = len(state.audit_forms)
+    preview_forms = list(state.audit_forms.values())[:20]
+    links_html = "".join(
+        f'<tr><td><strong><a href="/portal/forms/view?id={html.escape(f["form_no"])}">'
+        f"{html.escape(f['form_no'])}</a></strong></td>"
+        f"<td>{html.escape(f['site'])}</td>"
+        f"<td>{html.escape(f['applicant'])}</td>"
+        f"<td>{html.escape(f['days_overdue'])} 天</td></tr>"
+        for f in preview_forms
+    )
+    workspace = f"""
+    <div class="card">
+      <h2>企業電子簽核表單查詢中心 (Workflow eForm Portal)</h2>
+      <p id="forms-login-status" class="status-banner">
+        已通過身分驗證（Session Cookie 生效），系統共有 <strong>{total_forms:,}</strong> 筆逾期表單，可由同一個 BrowserContext 多分頁併發查閱（下方預覽前 {len(preview_forms)} 筆）。
+      </p>
+      <table>
+        <thead>
+          <tr><th>表單編號</th><th>廠區</th><th>申請人</th><th>逾期天數</th></tr>
+        </thead>
+        <tbody>{links_html}</tbody>
+      </table>
+    </div>
+    """
+    return _render_layout(
+        "Workflow eForm Portal — 簽核表單查詢中心",
+        "模擬單次登入共享 Context 與 iframe 內嵌表單明細 (/portal/forms/login)",
+        _render_portal_login_gate(is_authenticated, workspace),
+    )
+
+
+def render_form_view_page(
+    state: SandboxState,
+    form_no: str,
+    is_authenticated: bool,
+) -> str:
+    """Render outer form wrapper hosting an iframe detail view (/portal/forms/view?id=...)."""
+    cleaned_id = (form_no or "").strip().upper()
+    escaped_id = html.escape(cleaned_id)
+    workspace = f"""
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h2 style="margin: 0;">表單明細檢視 — <span id="view-form-no" class="badge">{escaped_id}</span></h2>
+        <a class="btn secondary" href="/portal/forms/login" style="height: 34px; font-size: 13px;">返回表單清單</a>
+      </div>
+      <iframe
+        id="form-frame"
+        name="formFrame"
+        src="/portal/forms/frame?id={escaped_id}"
+        style="width: 100%; height: 360px; border: 1px solid var(--border); border-radius: 8px; background: #fff;"
+      ></iframe>
+    </div>
+    """
+    return _render_layout(
+        f"表單檢視 {cleaned_id} — Workflow eForm Portal",
+        "透過 iframe 載入電子表單欄位供 Playwright 跨 Frame 擷取 (/portal/forms/view)",
+        _render_portal_login_gate(is_authenticated, workspace),
+    )
+
+
+def render_form_detail_frame(
+    state: SandboxState,
+    form_no: str,
+    is_authenticated: bool,
+) -> str:
+    """Render inner iframe form fields (/portal/forms/frame?id=...)."""
+    if not is_authenticated:
+        return """<!DOCTYPE html>
+<html lang="zh-TW">
+<head><meta charset="utf-8" /><title>Unauthorized</title></head>
+<body style="font-family: sans-serif; padding: 20px; color: #dc2626;">
+  <h3>尚未登入簽核系統，請先至 /portal/forms/login 完成登入。</h3>
+</body>
+</html>"""
+
+    cleaned_id = (form_no or "").strip().upper()
+    record = state.audit_forms.get(cleaned_id)
+    if record is None:
+        return f"""<!DOCTYPE html>
+<html lang="zh-TW">
+<head><meta charset="utf-8" /><title>Not Found</title><style>{BASE_CSS}</style></head>
+<body style="background: #fff; padding: 20px;">
+  <h3 style="color: var(--danger);">查無表單編號：{html.escape(cleaned_id)}</h3>
+</body>
+</html>"""
+
+    request_types = [
+        "VPN 遠端存取",
+        "資料庫唯讀權限",
+        "網段放行申請",
+        "ERP 模組授權",
+        "雲端帳號開通",
+        "檔案伺服器權限",
+    ]
+    options_html = "".join(
+        f'<option value="{html.escape(opt)}"{" selected" if opt == record["request_type"] else ""}>'
+        f"{html.escape(opt)}</option>"
+        for opt in request_types
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8" />
+  <title>Form Detail Frame — {html.escape(cleaned_id)}</title>
+  <style>{BASE_CSS}</style>
+</head>
+<body style="background: #ffffff; padding: 18px 20px;">
+  <div class="grid-3" style="margin-bottom: 14px;">
+    <div>
+      <label>表單編號 (Form No)</label>
+      <input id="field-form-no" type="text" value="{html.escape(record["form_no"])}" readonly />
+    </div>
+    <div>
+      <label>廠區 (Site)</label>
+      <input id="field-site" type="text" value="{html.escape(record["site"])}" readonly />
+    </div>
+    <div>
+      <label>申請人 (Applicant)</label>
+      <input id="field-applicant" type="text" value="{html.escape(record["applicant"])}" readonly />
+    </div>
+  </div>
+
+  <div style="margin-bottom: 14px;">
+    <label for="request-type">申請類型 (Request Type)</label>
+    <select id="request-type" disabled>
+      {options_html}
+    </select>
+  </div>
+
+  <div>
+    <label for="review-comment">審核備註 (Review Comment)</label>
+    <textarea
+      id="review-comment"
+      readonly
+      rows="3"
+      style="width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 14px; font-family: inherit;"
+    >{html.escape(record["review_comment"])}</textarea>
+  </div>
+</body>
+</html>"""
