@@ -35,8 +35,8 @@ if str(_TOOLS_DIR) not in sys.path:
 from tool_sdk import (  # noqa: E402
     BASE_DIR,
     ensure_sandbox_server,
+    open_browser,
     read_credentials,
-    setup_browser,
 )
 
 
@@ -49,36 +49,17 @@ def main() -> None:
     print(f"[SDK] 專案根目錄：{BASE_DIR}")
     print(f"[SDK] 已載入憑證：{creds['email']} (Portal 帳號：{creds['portal_account']})")
 
-    playwright = None
-    browser = None
-    context = None
+    with (
+        ensure_sandbox_server() as sandbox_url,
+        open_browser(headless=False, downloads_path=None, dialog_action="accept") as page,
+    ):
+        target_url = f"{sandbox_url.rstrip('/')}/portal/directory"
+        print(f"[Demo] 正在開啟目標頁面：{target_url}")
+        page.goto(target_url, wait_until="domcontentloaded")
 
-    with ensure_sandbox_server() as sandbox_url:
-        try:
-            playwright, browser, context, page = setup_browser(
-                headless=False,
-                downloads_path=None,
-                dialog_action="accept",
-            )
-
-            target_url = f"{sandbox_url.rstrip('/')}/portal/directory"
-            print(f"[Demo] 正在開啟目標頁面：{target_url}")
-            page.goto(target_url, wait_until="domcontentloaded")
-
-            # TODO: 在此撰寫 Playwright 自動化步驟
-            if sys.stdin and sys.stdin.isatty():
-                input("\n請確認瀏覽器畫面結果，按 Enter 後關閉瀏覽器...")
-        finally:
-            for resource, method in (
-                (context, "close"),
-                (browser, "close"),
-                (playwright, "stop"),
-            ):
-                if resource is not None:
-                    try:
-                        getattr(resource, method)()
-                    except Exception:
-                        pass
+        # TODO: 在此撰寫 Playwright 自動化步驟
+        if sys.stdin and sys.stdin.isatty():
+            input("\n請確認瀏覽器畫面結果，按 Enter 後關閉瀏覽器...")
 
 
 if __name__ == "__main__":

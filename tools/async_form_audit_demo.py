@@ -27,8 +27,8 @@ if str(_TOOLS_DIR) not in sys.path:
 from tool_sdk import (  # noqa: E402
     BASE_DIR,
     ensure_sandbox_server,
+    open_async_browser,
     read_credentials,
-    setup_async_browser,
 )
 
 SAMPLE_REPORT_FILENAME = "sample_form_audit_report.xlsx"
@@ -225,11 +225,8 @@ async def crawl_forms_concurrently(
 
     progress_lock = asyncio.Lock()
     completed = 0
-    playwright = browser = context = None
 
-    try:
-        playwright, browser, context = await setup_async_browser(headless=headless)
-
+    async with open_async_browser(headless=headless) as context:
         print("1. 正在執行單次登入（共享 BrowserContext Session）...")
         await login_once(context, sandbox_url, creds)
 
@@ -265,13 +262,6 @@ async def crawl_forms_concurrently(
         await asyncio.gather(*(worker(idx + 1) for idx in range(actual_workers)))
         elapsed = time.perf_counter() - start_time
         return results, elapsed
-    finally:
-        if context is not None:
-            await context.close()
-        if browser is not None:
-            await browser.close()
-        if playwright is not None:
-            await playwright.stop()
 
 
 async def main() -> None:

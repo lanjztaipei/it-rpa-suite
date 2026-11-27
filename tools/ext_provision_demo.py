@@ -21,8 +21,8 @@ if str(_TOOLS_DIR) not in sys.path:
 
 from tool_sdk import (  # noqa: E402
     ensure_sandbox_server,
+    open_browser,
     read_credentials,
-    setup_browser,
 )
 
 DEFAULT_EMP_ID = "EMP104"
@@ -172,57 +172,44 @@ def main() -> None:
 
     emp_id, emp_name, mac_addr, area_code = ask_user_inputs()
 
-    playwright = None
-    browser = None
-    context = None
-    page = None
-
     with ensure_sandbox_server() as sandbox_url:
         try:
-            playwright, browser, context, page = setup_browser(
+            with open_browser(
                 headless=False,
                 downloads_path=None,
                 dialog_action="accept",
-            )
+            ) as page:
+                try:
+                    selected_ext = run_provision_flow(
+                        page=page,
+                        sandbox_url=sandbox_url,
+                        emp_id=emp_id,
+                        emp_name=emp_name,
+                        mac_addr=mac_addr,
+                        area_code=area_code,
+                    )
 
-            selected_ext = run_provision_flow(
-                page=page,
-                sandbox_url=sandbox_url,
-                emp_id=emp_id,
-                emp_name=emp_name,
-                mac_addr=mac_addr,
-                area_code=area_code,
-            )
+                    print("\n" + "=" * 68)
+                    print("[OK] 分機配號資料已自動填寫並預覽完成！")
+                    print(f"  - 配發員工工號：{emp_id}")
+                    print(f"  - 配發員工姓名：{emp_name}")
+                    print(f"  - 選取可用分機：{selected_ext}")
+                    print(
+                        f"  - 話機配置模式：{'桌面 Softphone (無實體 MAC)' if not mac_addr else f'實體話機 MAC ({mac_addr})'}"
+                    )
+                    print("=" * 68)
+                    print("請於瀏覽器確認畫面結果。")
 
-            print("\n" + "=" * 68)
-            print("[OK] 分機配號資料已自動填寫並預覽完成！")
-            print(f"  - 配發員工工號：{emp_id}")
-            print(f"  - 配發員工姓名：{emp_name}")
-            print(f"  - 選取可用分機：{selected_ext}")
-            print(
-                f"  - 話機配置模式：{'桌面 Softphone (無實體 MAC)' if not mac_addr else f'實體話機 MAC ({mac_addr})'}"
-            )
-            print("=" * 68)
-            print("請於瀏覽器確認畫面結果。")
-
-            if sys.stdin and sys.stdin.isatty():
-                input("\n按 Enter 後關閉瀏覽器...")
-
+                    if sys.stdin and sys.stdin.isatty():
+                        input("\n按 Enter 後關閉瀏覽器...")
+                except Exception as exc:
+                    print(f"\n[錯誤] 執行過程發生異常：{exc}")
+                    if sys.stdin and sys.stdin.isatty():
+                        input("按 Enter 後關閉瀏覽器...")
         except Exception as exc:
-            print(f"\n[錯誤] 執行過程發生異常：{exc}")
+            print(f"\n[錯誤] 啟動瀏覽器過程發生異常：{exc}")
             if sys.stdin and sys.stdin.isatty():
-                input("按 Enter 後關閉瀏覽器...")
-        finally:
-            for resource, method in (
-                (context, "close"),
-                (browser, "close"),
-                (playwright, "stop"),
-            ):
-                if resource is not None:
-                    try:
-                        getattr(resource, method)()
-                    except Exception:
-                        pass
+                input("按 Enter 後繼續...")
 
 
 def restart_program() -> None:

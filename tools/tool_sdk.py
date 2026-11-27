@@ -4,7 +4,8 @@ Provides:
 - Project root (`BASE_DIR`) and `data/` directory resolution across source and frozen modes
 - Windows DPAPI credential decryption (`data/credentials.dat`)
 - Active Sandbox HTTP server discovery and auto-start fallback (`get_sandbox_base_url`, `ensure_sandbox_server`)
-- Sync & Async Playwright Microsoft Edge browser launchers (`setup_browser`, `setup_async_browser`)
+- Sync & Async Playwright Microsoft Edge launchers and context managers
+  (`setup_browser`, `open_browser`, `setup_async_browser`, `open_async_browser`)
 """
 
 from __future__ import annotations
@@ -14,8 +15,8 @@ import json
 import os
 import sys
 import urllib.request
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncGenerator, Callable, Generator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -333,3 +334,77 @@ async def setup_async_browser(
 
     context = await browser.new_context(**context_kwargs)
     return playwright, browser, context
+
+
+def close_browser_resources(playwright: Any, browser: Any, context: Any) -> None:
+    """Safely close sync Playwright `(context, browser, playwright)` resources."""
+    for resource, method in (
+        (context, "close"),
+        (browser, "close"),
+        (playwright, "stop"),
+    ):
+        if resource is not None:
+            try:
+                getattr(resource, method)()
+            except Exception:
+                pass
+
+
+async def aclose_browser_resources(playwright: Any, browser: Any, context: Any) -> None:
+    """Safely close async Playwright `(context, browser, playwright)` resources."""
+    for resource, method in (
+        (context, "close"),
+        (browser, "close"),
+        (playwright, "stop"),
+    ):
+        if resource is not None:
+            try:
+                await getattr(resource, method)()
+            except Exception:
+                pass
+
+
+@contextmanager
+def open_browser(
+    headless: bool = False,
+    downloads_path: str | None = None,
+    dialog_action: str | Callable[[Any], None] | None = "accept",
+    default_timeout_ms: int = 30000,
+    ignore_https_errors: bool | None = None,
+    slow_mo: float | None = None,
+) -> Generator[Any, None, None]:
+    """Context manager that launches Microsoft Edge and yields `page`, auto-closing all resources."""
+    playwright = browser = context = None
+    try:
+        playwright, browser, context, page = setup_browser(
+            headless=headless,
+            downloads_path=downloads_path,
+            dialog_action=dialog_action,
+            default_timeout_ms=default_timeout_ms,
+            ignore_https_errors=ignore_https_errors,
+            slow_mo=slow_mo,
+        )
+        yield page
+    finally:
+        close_browser_resources(playwright, browser, context)
+
+
+@asynccontextmanager
+async def open_async_browser(
+    headless: bool = False,
+    downloads_path: str | None = None,
+    ignore_https_errors: bool | None = None,
+    slow_mo: float | None = None,
+) -> AsyncGenerator[Any, None]:
+    """Async context manager that launches Edge and yields shared `context`, auto-closing on exit."""
+    playwright = browser = context = None
+    try:
+        playwright, browser, context = await setup_async_browser(
+            headless=headless,
+            downloads_path=downloads_path,
+            ignore_https_errors=ignore_https_errors,
+            slow_mo=slow_mo,
+        )
+        yield context
+    finally:
+        await aclose_browser_resources(playwright, browser, context)
