@@ -30,6 +30,7 @@ required_files = [
     project_dir / "assets" / "icons" / "moon.png",
     project_dir / "assets" / "icons" / "sun.png",
     project_dir / "tools" / "tool_sdk.py",
+    project_dir / "tools" / "_tool_template.py",
     project_dir / "tools" / "updater" / "updater.py",
 ]
 
@@ -103,8 +104,9 @@ datas = [
     (str(project_dir / "assets" / "icons" / "corner_icon.png"), "assets/icons"),
     (str(project_dir / "assets" / "icons" / "moon.png"), "assets/icons"),
     (str(project_dir / "assets" / "icons" / "sun.png"), "assets/icons"),
-    # 供三階段 Updater 於 Stage 3 同步至 tools/tool_sdk.py
+    # 供三階段 Updater 於 Stage 3 同步至 tools/tool_sdk.py 與 tools/_tool_template.py
     (str(project_dir / "tools" / "tool_sdk.py"), "tools"),
+    (str(project_dir / "tools" / "_tool_template.py"), "tools"),
     (str(project_dir / "tools" / "updater" / "updater.py"), "."),
 ]
 

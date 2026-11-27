@@ -107,6 +107,14 @@ class UpdatePaths:
     def source_sha256_file(self) -> Path:
         return Path(f"{self.source_zip}.sha256")
 
+    @property
+    def tool_template_source(self) -> Path:
+        return self.internal_dir / "tools" / "_tool_template.py"
+
+    @property
+    def tool_template_target(self) -> Path:
+        return self.tools_dir / "_tool_template.py"
+
     @classmethod
     def from_runtime(
         cls,
@@ -500,15 +508,22 @@ class Updater:
 
         if not p.tool_sdk_source.is_file():
             LOGGER.warning("找不到內建工具 SDK 範本：%s", p.tool_sdk_source)
-            return
-
-        target_existed = p.tool_sdk_target.exists()
-        shutil.copy2(p.tool_sdk_source, p.tool_sdk_target)
-
-        if target_existed:
-            LOGGER.info("已同步更新 tools/tool_sdk.py：%s", p.tool_sdk_target)
         else:
-            LOGGER.info("已複製初始 tools/tool_sdk.py：%s", p.tool_sdk_target)
+            target_existed = p.tool_sdk_target.exists()
+            shutil.copy2(p.tool_sdk_source, p.tool_sdk_target)
+
+            if target_existed:
+                LOGGER.info("已同步更新 tools/tool_sdk.py：%s", p.tool_sdk_target)
+            else:
+                LOGGER.info("已複製初始 tools/tool_sdk.py：%s", p.tool_sdk_target)
+
+        if p.tool_template_source.is_file():
+            template_existed = p.tool_template_target.exists()
+            shutil.copy2(p.tool_template_source, p.tool_template_target)
+            if template_existed:
+                LOGGER.info("已同步更新 tools/_tool_template.py：%s", p.tool_template_target)
+            else:
+                LOGGER.info("已複製初始 tools/_tool_template.py：%s", p.tool_template_target)
 
     @staticmethod
     def _build_clean_env(*, strip_updater_vars: bool = False) -> dict[str, str]:

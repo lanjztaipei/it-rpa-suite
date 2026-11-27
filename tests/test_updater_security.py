@@ -257,6 +257,7 @@ def test_full_three_stage_self_update_lifecycle(
             MAIN_EXECUTABLE_NAME: "new-exe-v2",
             "_internal/updater.exe": "updater-v2",
             "_internal/tools/tool_sdk.py": "# Updated Tool SDK v2\n",
+            "_internal/tools/_tool_template.py": "# Updated Tool Template v2\n",
         },
     )
     os.utime(source_zip, (3000.0, 3000.0))
@@ -308,6 +309,9 @@ def test_full_three_stage_self_update_lifecycle(
     assert (app_root / "tools" / "tool_sdk.py").read_text(
         encoding="utf-8"
     ) == "# Updated Tool SDK v2\n"
+    assert (app_root / "tools" / "_tool_template.py").read_text(
+        encoding="utf-8"
+    ) == "# Updated Tool Template v2\n"
 
     # Subsequent check should report NOT_NEEDED and backups must be cleaned up
     assert stage3_updater.check_stage() == UpdateStage.NOT_NEEDED
@@ -623,6 +627,7 @@ def test_toolbox_find_tool_files_excludes_updater_and_sdk(tmp_path: Path) -> Non
     (tools_dir / "subtool").mkdir(parents=True)
 
     (tools_dir / "tool_sdk.py").write_text("# sdk", encoding="utf-8")
+    (tools_dir / "_tool_template.py").write_text("# template", encoding="utf-8")
     (tools_dir / "updater" / "updater.py").write_text("# updater", encoding="utf-8")
     (tools_dir / "updater" / "updater.exe").write_text("bin", encoding="utf-8")
     (tools_dir / "ext_provision_demo.py").write_text("# demo", encoding="utf-8")
@@ -634,6 +639,7 @@ def test_toolbox_find_tool_files_excludes_updater_and_sdk(tmp_path: Path) -> Non
     assert "ext_provision_demo.py" in names
     assert "custom_helper.exe" in names
     assert "tool_sdk.py" not in names
+    assert "_tool_template.py" not in names
     assert "updater.py" not in names
     assert "updater.exe" not in names
 
