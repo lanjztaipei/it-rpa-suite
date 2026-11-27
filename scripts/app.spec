@@ -31,6 +31,8 @@ required_files = [
     project_dir / "assets" / "icons" / "sun.png",
     project_dir / "tools" / "tool_sdk.py",
     project_dir / "tools" / "_tool_template.py",
+    project_dir / "tools" / "ext_provision_demo.py",
+    project_dir / "tools" / "async_form_audit_demo.py",
     project_dir / "tools" / "updater" / "updater.py",
 ]
 
@@ -104,9 +106,11 @@ datas = [
     (str(project_dir / "assets" / "icons" / "corner_icon.png"), "assets/icons"),
     (str(project_dir / "assets" / "icons" / "moon.png"), "assets/icons"),
     (str(project_dir / "assets" / "icons" / "sun.png"), "assets/icons"),
-    # 供三階段 Updater 於 Stage 3 同步至 tools/tool_sdk.py 與 tools/_tool_template.py
+    # 供首次啟動與三階段 Updater Stage 3 植入／同步至 tools/
     (str(project_dir / "tools" / "tool_sdk.py"), "tools"),
     (str(project_dir / "tools" / "_tool_template.py"), "tools"),
+    (str(project_dir / "tools" / "ext_provision_demo.py"), "tools"),
+    (str(project_dir / "tools" / "async_form_audit_demo.py"), "tools"),
     (str(project_dir / "tools" / "updater" / "updater.py"), "."),
 ]
 

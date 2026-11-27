@@ -10,6 +10,12 @@ from pathlib import Path
 # 統一預設更新壓縮檔位置（相對於 project_root），亦可於 data/settings.json 的 "update_source_zip" 覆寫
 DEFAULT_UPDATE_ZIP_REL_PATH = Path("released") / "ITRPASuite.zip"
 APP_FOLDER_NAME = "ITRPASuite"
+BUNDLED_TOOL_SEED_FILES: tuple[str, ...] = (
+    "tool_sdk.py",
+    "_tool_template.py",
+    "ext_provision_demo.py",
+    "async_form_audit_demo.py",
+)
 
 
 def _default_project_root() -> Path:
@@ -123,6 +129,10 @@ class AppPaths:
         return self.base_dir / "tools"
 
     @property
+    def bundled_tools_dir(self) -> Path:
+        return self.resource_dir / "tools"
+
+    @property
     def project_root(self) -> Path:
         """Return the top-level project root (parent of `ITRPASuite/` when packaged inside it)."""
         if self.base_dir.name.casefold() == APP_FOLDER_NAME.casefold():
@@ -141,16 +151,27 @@ class AppPaths:
         return self.icons_dir / filename
 
     def ensure_directories(self) -> None:
-        """Create writable data/, data/logs/, and data/downloads/ directories and seed default config files."""
+        """Create writable runtime directories and seed default config and bundled tool files."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.downloads_dir.mkdir(parents=True, exist_ok=True)
+        self.tools_dir.mkdir(parents=True, exist_ok=True)
 
         if self.default_settings_file.is_file() and not self.settings_file.exists():
             shutil.copy2(self.default_settings_file, self.settings_file)
 
         if self.default_templates_file.is_file() and not self.ticket_templates_file.exists():
             shutil.copy2(self.default_templates_file, self.ticket_templates_file)
+
+        for filename in BUNDLED_TOOL_SEED_FILES:
+            source_file = self.bundled_tools_dir / filename
+            target_file = self.tools_dir / filename
+            if (
+                source_file.is_file()
+                and not target_file.exists()
+                and source_file.resolve() != target_file.resolve()
+            ):
+                shutil.copy2(source_file, target_file)
 
 
 def get_app_paths(
