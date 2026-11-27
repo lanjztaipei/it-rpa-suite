@@ -243,11 +243,17 @@ def test_full_three_stage_self_update_lifecycle(
     internal_dir = app_root / "_internal"
     internal_dir.mkdir(parents=True)
 
-    # Seed old installation (v1)
+    # Seed old installation (v1) + pre-existing customized demo & user tool
     (app_root / MAIN_EXECUTABLE_NAME).write_text("old-exe-v1", encoding="utf-8")
     old_updater = internal_dir / "updater.exe"
     old_updater.write_text("updater-v1", encoding="utf-8")
     (internal_dir / "obsolete.dll").write_text("obsolete", encoding="utf-8")
+    (app_root / "tools").mkdir(parents=True, exist_ok=True)
+    (app_root / "tools" / "tool_sdk.py").write_text("# Old SDK v1\n", encoding="utf-8")
+    (app_root / "tools" / "ext_provision_demo.py").write_text(
+        "# User-edited ext demo\n", encoding="utf-8"
+    )
+    (app_root / "tools" / "my_custom_tool.py").write_text("# My personal tool\n", encoding="utf-8")
     Updater._write_text_atomic(app_root / "data" / "version.txt", "1000.0")
 
     # Seed new release package (v2) in ./released/ITRPASuite.zip
@@ -257,6 +263,9 @@ def test_full_three_stage_self_update_lifecycle(
             MAIN_EXECUTABLE_NAME: "new-exe-v2",
             "_internal/updater.exe": "updater-v2",
             "_internal/tools/tool_sdk.py": "# Updated Tool SDK v2\n",
+            "_internal/tools/_tool_template.py": "# Updated Tool Template v2\n",
+            "_internal/tools/ext_provision_demo.py": "# Bundled ext demo v2\n",
+            "_internal/tools/async_form_audit_demo.py": "# Bundled async demo v2\n",
         },
     )
     os.utime(source_zip, (3000.0, 3000.0))
@@ -308,6 +317,19 @@ def test_full_three_stage_self_update_lifecycle(
     assert (app_root / "tools" / "tool_sdk.py").read_text(
         encoding="utf-8"
     ) == "# Updated Tool SDK v2\n"
+    assert (app_root / "tools" / "_tool_template.py").read_text(
+        encoding="utf-8"
+    ) == "# Updated Tool Template v2\n"
+    # Existing demo & personal tools must be preserved; missing new bundled demo is seeded
+    assert (app_root / "tools" / "ext_provision_demo.py").read_text(
+        encoding="utf-8"
+    ) == "# User-edited ext demo\n"
+    assert (app_root / "tools" / "async_form_audit_demo.py").read_text(
+        encoding="utf-8"
+    ) == "# Bundled async demo v2\n"
+    assert (app_root / "tools" / "my_custom_tool.py").read_text(
+        encoding="utf-8"
+    ) == "# My personal tool\n"
 
     # Subsequent check should report NOT_NEEDED and backups must be cleaned up
     assert stage3_updater.check_stage() == UpdateStage.NOT_NEEDED
@@ -623,6 +645,7 @@ def test_toolbox_find_tool_files_excludes_updater_and_sdk(tmp_path: Path) -> Non
     (tools_dir / "subtool").mkdir(parents=True)
 
     (tools_dir / "tool_sdk.py").write_text("# sdk", encoding="utf-8")
+    (tools_dir / "_tool_template.py").write_text("# template", encoding="utf-8")
     (tools_dir / "updater" / "updater.py").write_text("# updater", encoding="utf-8")
     (tools_dir / "updater" / "updater.exe").write_text("bin", encoding="utf-8")
     (tools_dir / "ext_provision_demo.py").write_text("# demo", encoding="utf-8")
@@ -634,6 +657,7 @@ def test_toolbox_find_tool_files_excludes_updater_and_sdk(tmp_path: Path) -> Non
     assert "ext_provision_demo.py" in names
     assert "custom_helper.exe" in names
     assert "tool_sdk.py" not in names
+    assert "_tool_template.py" not in names
     assert "updater.py" not in names
     assert "updater.exe" not in names
 

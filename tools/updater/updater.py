@@ -52,6 +52,16 @@ T = TypeVar("T")
 DEFAULT_RELEASE_RELATIVE_PATH = Path("released") / "ITRPASuite.zip"
 APP_FOLDER_NAME = "ITRPASuite"
 MAIN_EXECUTABLE_NAME = "ITRPASuite.exe"
+# Stage 3 更新時一律強制同步覆蓋的工具底座／範本檔
+ALWAYS_SYNC_TOOL_FILES: tuple[str, ...] = (
+    "tool_sdk.py",
+    "_tool_template.py",
+)
+# Stage 3 更新時僅於目標不存在時植入的內建示範工具（避免覆蓋使用者自行修改版本）
+SEED_IF_MISSING_TOOL_FILES: tuple[str, ...] = (
+    "ext_provision_demo.py",
+    "async_form_audit_demo.py",
+)
 
 
 class UpdateStage(Enum):
@@ -106,6 +116,14 @@ class UpdatePaths:
     @property
     def source_sha256_file(self) -> Path:
         return Path(f"{self.source_zip}.sha256")
+
+    @property
+    def tool_template_source(self) -> Path:
+        return self.internal_dir / "tools" / "_tool_template.py"
+
+    @property
+    def tool_template_target(self) -> Path:
+        return self.tools_dir / "_tool_template.py"
 
     @classmethod
     def from_runtime(
@@ -500,15 +518,33 @@ class Updater:
 
         if not p.tool_sdk_source.is_file():
             LOGGER.warning("找不到內建工具 SDK 範本：%s", p.tool_sdk_source)
-            return
-
-        target_existed = p.tool_sdk_target.exists()
-        shutil.copy2(p.tool_sdk_source, p.tool_sdk_target)
-
-        if target_existed:
-            LOGGER.info("已同步更新 tools/tool_sdk.py：%s", p.tool_sdk_target)
         else:
-            LOGGER.info("已複製初始 tools/tool_sdk.py：%s", p.tool_sdk_target)
+            target_existed = p.tool_sdk_target.exists()
+            shutil.copy2(p.tool_sdk_source, p.tool_sdk_target)
+
+            if target_existed:
+                LOGGER.info("已同步更新 tools/tool_sdk.py：%s", p.tool_sdk_target)
+            else:
+                LOGGER.info("已複製初始 tools/tool_sdk.py：%s", p.tool_sdk_target)
+
+        bundled_tools_dir = p.internal_dir / "tools"
+        for filename in ALWAYS_SYNC_TOOL_FILES:
+            if filename == "tool_sdk.py":
+                continue
+            source_file = bundled_tools_dir / filename
+            target_file = p.tools_dir / filename
+            if source_file.is_file():
+                existed = target_file.exists()
+                shutil.copy2(source_file, target_file)
+                action = "同步更新" if existed else "複製初始"
+                LOGGER.info("已%s tools/%s：%s", action, filename, target_file)
+
+        for filename in SEED_IF_MISSING_TOOL_FILES:
+            source_file = bundled_tools_dir / filename
+            target_file = p.tools_dir / filename
+            if source_file.is_file() and not target_file.exists():
+                shutil.copy2(source_file, target_file)
+                LOGGER.info("已植入內建示範工具 tools/%s：%s", filename, target_file)
 
     @staticmethod
     def _build_clean_env(*, strip_updater_vars: bool = False) -> dict[str, str]:

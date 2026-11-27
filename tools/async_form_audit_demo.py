@@ -18,20 +18,25 @@ from typing import Any
 from urllib.parse import quote
 
 from openpyxl import load_workbook
-from playwright.async_api import async_playwright
 
-# Ensure tools/ directory is on sys.path when invoked from any working directory
-_TOOLS_DIR = Path(__file__).resolve().parent
+# Ensure `tools/` is on sys.path whether run from `tools/` or `tools/<subdir>/`
+_TOOLS_DIR = next(
+    (
+        parent
+        for parent in (Path(__file__).resolve().parent, *Path(__file__).resolve().parents)
+        if (parent / "tool_sdk.py").is_file()
+    ),
+    Path(__file__).resolve().parent,
+)
 if str(_TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(_TOOLS_DIR))
 
 from tool_sdk import (  # noqa: E402
-    BASE_DIR,
-    EDGE_LAUNCH_ARGS,
+    DOWNLOADS_DIR,
     ensure_sandbox_server,
-    get_slow_mo_ms,
+    get_assets_dir,
+    open_async_browser,
     read_credentials,
-    should_ignore_https_errors,
 )
 
 SAMPLE_REPORT_FILENAME = "sample_form_audit_report.xlsx"
@@ -42,15 +47,10 @@ MAX_CONCURRENCY = 10
 
 def resolve_sample_workbook_path(base_dir: Path | None = None) -> Path:
     """Locate the bundled sample audit workbook in source or packaged mode."""
-    root = (base_dir or BASE_DIR).resolve()
-    candidates = (
-        root / "assets" / SAMPLE_REPORT_FILENAME,
-        root / "_internal" / "assets" / SAMPLE_REPORT_FILENAME,
-    )
-    for path in candidates:
-        if path.is_file():
-            return path
-    raise FileNotFoundError(f"找不到內建範例 Excel：{candidates[0]}（請確認 assets 目錄完整）")
+    candidate = get_assets_dir(base_dir) / SAMPLE_REPORT_FILENAME
+    if candidate.is_file():
+        return candidate
+    raise FileNotFoundError(f"找不到內建範例 Excel：{candidate}（請確認 assets 目錄完整）")
 
 
 def make_output_path(input_path: Path, output_dir: Path) -> Path:
@@ -167,44 +167,6 @@ def ask_concurrency(
         print(f"錯誤：請輸入 {minimum} 到 {maximum} 之間的數字。")
 
 
-async def setup_async_browser(
-    headless: bool = False,
-    ignore_https_errors: bool | None = None,
-    slow_mo: float | None = None,
-) -> tuple[Any, Any, Any]:
-    """Launch async Microsoft Edge (with Chromium fallback) returning `(playwright, browser, context)`."""
-    playwright = await async_playwright().start()
-    launch_args = [] if headless else EDGE_LAUNCH_ARGS
-    ignore_https = (
-        should_ignore_https_errors() if ignore_https_errors is None else bool(ignore_https_errors)
-    )
-    resolved_slow_mo = get_slow_mo_ms() if slow_mo is None else max(0.0, float(slow_mo))
-
-    try:
-        browser = await playwright.chromium.launch(
-            channel="msedge",
-            headless=headless,
-            args=launch_args,
-            slow_mo=resolved_slow_mo,
-        )
-    except Exception:
-        browser = await playwright.chromium.launch(
-            headless=headless,
-            args=launch_args,
-            slow_mo=resolved_slow_mo,
-        )
-
-    context_kwargs: dict[str, Any] = {
-        "ignore_https_errors": ignore_https,
-        "locale": "zh-TW",
-    }
-    if not headless:
-        context_kwargs["no_viewport"] = True
-
-    context = await browser.new_context(**context_kwargs)
-    return playwright, browser, context
-
-
 async def login_once(context: Any, sandbox_url: str, creds: dict[str, str]) -> None:
     """Authenticate once in a temporary tab so all worker tabs share the session cookie."""
     login_page = await context.new_page()
@@ -266,11 +228,8 @@ async def crawl_forms_concurrently(
 
     progress_lock = asyncio.Lock()
     completed = 0
-    playwright = browser = context = None
 
-    try:
-        playwright, browser, context = await setup_async_browser(headless=headless)
-
+    async with open_async_browser(headless=headless) as context:
         print("1. 正在執行單次登入（共享 BrowserContext Session）...")
         await login_once(context, sandbox_url, creds)
 
@@ -306,13 +265,6 @@ async def crawl_forms_concurrently(
         await asyncio.gather(*(worker(idx + 1) for idx in range(actual_workers)))
         elapsed = time.perf_counter() - start_time
         return results, elapsed
-    finally:
-        if context is not None:
-            await context.close()
-        if browser is not None:
-            await browser.close()
-        if playwright is not None:
-            await playwright.stop()
 
 
 async def main() -> None:
@@ -321,8 +273,7 @@ async def main() -> None:
 
     concurrency = ask_concurrency()
     input_path = resolve_sample_workbook_path()
-    output_dir = BASE_DIR / "data" / "downloads"
-    output_path = make_output_path(input_path, output_dir)
+    output_path = make_output_path(input_path, DOWNLOADS_DIR)
 
     form_numbers = load_form_numbers(input_path)
     print(f"\n讀取範例報表：{input_path.name}（共 {len(form_numbers)} 筆表單）")

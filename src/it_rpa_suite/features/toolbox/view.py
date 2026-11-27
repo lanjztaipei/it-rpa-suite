@@ -23,6 +23,7 @@ EXCLUDED_TOOL_FILENAMES = frozenset(
         "updater.exe",
         "updater.py",
         "tool_sdk.py",
+        "_tool_template.py",
         "__init__.py",
     }
 )

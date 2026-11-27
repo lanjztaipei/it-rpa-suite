@@ -18,17 +18,31 @@ from it_rpa_suite.adapters.credentials_dpapi import (
     is_sandbox_mode,
     resolve_login_credentials,
 )
-from it_rpa_suite.adapters.paths import AppPaths, get_app_paths
+from it_rpa_suite.adapters.paths import get_app_paths
 from it_rpa_suite.adapters.storage import AppStorage
 
 
 def test_app_paths_ensure_directories_and_default_settings(tmp_path: Path) -> None:
-    """Verify AppPaths creates data/ and data/logs/ and seeds default_settings.json."""
+    """Verify AppPaths creates data/ and tools/ and seeds default config and bundled tool files."""
     paths = get_app_paths(base_dir=tmp_path)
 
     assert paths.data_dir.is_dir()
     assert paths.logs_dir.is_dir()
+    assert paths.tools_dir.is_dir()
     assert paths.settings_file.is_file()
+    for filename in (
+        "tool_sdk.py",
+        "_tool_template.py",
+        "ext_provision_demo.py",
+        "async_form_audit_demo.py",
+    ):
+        assert (paths.tools_dir / filename).is_file()
+
+    # Subsequent ensure_directories() calls must not overwrite existing user-modified tools
+    custom_marker = "# user customized demo\n"
+    (paths.tools_dir / "ext_provision_demo.py").write_text(custom_marker, encoding="utf-8")
+    paths.ensure_directories()
+    assert (paths.tools_dir / "ext_provision_demo.py").read_text(encoding="utf-8") == custom_marker
 
     settings_data = json.loads(paths.settings_file.read_text(encoding="utf-8"))
     assert settings_data["dark_mode"] is False
@@ -38,10 +52,18 @@ def test_app_paths_ensure_directories_and_default_settings(tmp_path: Path) -> No
 
 
 def test_app_paths_frozen_mode(tmp_path: Path, monkeypatch) -> None:
-    """Verify AppPaths resolves sys.executable and sys._MEIPASS when frozen."""
+    """Verify AppPaths resolves sys.executable and sys._MEIPASS and seeds tools/ when frozen."""
     exe_dir = tmp_path / "dist" / "ITRPASuite"
     meipass_dir = exe_dir / "_internal"
     (meipass_dir / "assets").mkdir(parents=True)
+    (meipass_dir / "tools").mkdir(parents=True)
+    for filename in (
+        "tool_sdk.py",
+        "_tool_template.py",
+        "ext_provision_demo.py",
+        "async_form_audit_demo.py",
+    ):
+        (meipass_dir / "tools" / filename).write_text(f"# bundled {filename}\n", encoding="utf-8")
     fake_exe = exe_dir / "ITRPASuite.exe"
     fake_exe.write_text("", encoding="utf-8")
 
@@ -49,10 +71,20 @@ def test_app_paths_frozen_mode(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("sys.executable", str(fake_exe), raising=False)
     monkeypatch.setattr("sys._MEIPASS", str(meipass_dir), raising=False)
 
-    paths = AppPaths()
+    paths = get_app_paths()
     assert paths.base_dir == exe_dir.resolve()
     assert paths.resource_dir == meipass_dir.resolve()
     assert paths.assets_dir == (meipass_dir / "assets").resolve()
+    assert paths.bundled_tools_dir == (meipass_dir / "tools").resolve()
+    for filename in (
+        "tool_sdk.py",
+        "_tool_template.py",
+        "ext_provision_demo.py",
+        "async_form_audit_demo.py",
+    ):
+        assert (exe_dir / "tools" / filename).read_text(
+            encoding="utf-8"
+        ) == f"# bundled {filename}\n"
 
 
 def test_storage_atomic_settings_read_write(tmp_path: Path) -> None:

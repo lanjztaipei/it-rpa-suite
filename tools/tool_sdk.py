@@ -1,10 +1,11 @@
 """Standard SDK for standalone external tools in the `tools/` directory.
 
 Provides:
-- Project root (`BASE_DIR`) and `data/` directory resolution across source and frozen modes
+- Project root (`BASE_DIR`) and standard directory helpers (`TOOLS_DIR`, `DATA_DIR`, `DOWNLOADS_DIR`, `get_assets_dir`)
 - Windows DPAPI credential decryption (`data/credentials.dat`)
 - Active Sandbox HTTP server discovery and auto-start fallback (`get_sandbox_base_url`, `ensure_sandbox_server`)
-- Playwright Microsoft Edge browser launcher (`setup_browser`)
+- Sync & Async Playwright Microsoft Edge launchers and context managers
+  (`setup_browser`, `open_browser`, `setup_async_browser`, `open_async_browser`)
 """
 
 from __future__ import annotations
@@ -14,19 +15,21 @@ import json
 import os
 import sys
 import urllib.request
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncGenerator, Callable, Generator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
-
-import win32crypt
-from playwright.sync_api import sync_playwright
 
 EDGE_LAUNCH_ARGS = [
     "--start-maximized",
     "--disable-translate",
     ("--disable-features=DownloadBubble,DownloadBubbleV2,Translate,TranslateUI,msEdgeTranslate"),
 ]
+
+# Lazy placeholders: avoid eagerly importing Playwright on `import tool_sdk`
+# while preserving `monkeypatch.setattr(tool_sdk, "sync_playwright", ...)` compatibility.
+sync_playwright: Any = None
+async_playwright: Any = None
 
 DEFAULT_SANDBOX_CREDENTIALS: dict[str, str] = {
     "email": "alex.chen@enterprise.local",
@@ -67,11 +70,37 @@ def get_base_dir() -> Path:
 
 
 BASE_DIR: Path = get_base_dir()
+TOOLS_DIR: Path = BASE_DIR / "tools"
+DATA_DIR: Path = BASE_DIR / "data"
+DOWNLOADS_DIR: Path = DATA_DIR / "downloads"
+
+
+def get_downloads_dir(base_dir: Path | None = None, *, create: bool = False) -> Path:
+    """Return `<base_dir>/data/downloads`, optionally creating the directory."""
+    target = (base_dir or BASE_DIR).resolve() / "data" / "downloads"
+    if create:
+        target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def get_assets_dir(base_dir: Path | None = None) -> Path:
+    """Locate the bundled `assets/` directory in source or PyInstaller `_internal/` layout."""
+    root = (base_dir or BASE_DIR).resolve()
+    candidates = (
+        root / "assets",
+        root / "_internal" / "assets",
+    )
+    for path in candidates:
+        if path.is_dir():
+            return path
+    return candidates[0]
 
 
 def decrypt_credentials(encrypted_text: str) -> dict[str, str]:
     """Decrypt Base64 DPAPI blob into a credential dictionary."""
     try:
+        import win32crypt
+
         encrypted_blob = base64.b64decode(encrypted_text.strip().encode("utf-8"))
         _, raw_bytes = win32crypt.CryptUnprotectData(
             encrypted_blob,
@@ -136,7 +165,7 @@ def read_credentials(
     missing = [
         key
         for key in ("email", "portal_account", "portal_password", "nac_account", "nac_password")
-        if not str(data.get(key) or "").strip()
+        if not (data.get(key) or "").strip()
     ]
     if missing:
         raise RuntimeError(f"系統憑證檔缺少必要欄位（{', '.join(missing)}），請重新設定憑證")
@@ -182,7 +211,7 @@ def get_sandbox_base_url(preferred_port: int = 8000) -> str:
 
 
 @contextmanager
-def ensure_sandbox_server(preferred_port: int = 8000) -> Iterator[str]:
+def ensure_sandbox_server(preferred_port: int = 8000) -> Generator[str, None, None]:
     """Yield an active sandbox URL; start an embedded server if none is running."""
     active_url = get_sandbox_base_url(preferred_port=preferred_port)
     if _is_sandbox_alive(active_url):
@@ -228,6 +257,30 @@ def get_slow_mo_ms(default: float = 0.0) -> float:
     return value if value >= 0 else default
 
 
+def _build_browser_launch_config(
+    *,
+    headless: bool,
+    ignore_https_errors: bool | None,
+    slow_mo: float | None,
+) -> tuple[list[str], float, dict[str, Any]]:
+    """Build shared Edge launch args, `slow_mo` delay, and `new_context` options."""
+    launch_args = [] if headless else list(EDGE_LAUNCH_ARGS)
+    ignore_https = (
+        should_ignore_https_errors() if ignore_https_errors is None else ignore_https_errors
+    )
+    resolved_slow_mo = get_slow_mo_ms() if slow_mo is None else max(0.0, float(slow_mo))
+
+    context_kwargs: dict[str, Any] = {
+        "accept_downloads": True,
+        "ignore_https_errors": ignore_https,
+        "locale": "zh-TW",
+    }
+    if not headless:
+        context_kwargs["no_viewport"] = True
+
+    return launch_args, resolved_slow_mo, context_kwargs
+
+
 def setup_browser(
     headless: bool = False,
     downloads_path: str | None = None,
@@ -237,12 +290,16 @@ def setup_browser(
     slow_mo: float | None = None,
 ) -> tuple[Any, Any, Any, Any]:
     """Launch Microsoft Edge (with fallback to Chromium) and return `(playwright, browser, context, page)`."""
-    playwright = sync_playwright().start()
-    launch_args = [] if headless else EDGE_LAUNCH_ARGS
-    ignore_https = (
-        should_ignore_https_errors() if ignore_https_errors is None else bool(ignore_https_errors)
+    pw_factory = sync_playwright
+    if pw_factory is None:
+        from playwright.sync_api import sync_playwright as pw_factory
+
+    playwright = pw_factory().start()
+    launch_args, resolved_slow_mo, context_kwargs = _build_browser_launch_config(
+        headless=headless,
+        ignore_https_errors=ignore_https_errors,
+        slow_mo=slow_mo,
     )
-    resolved_slow_mo = get_slow_mo_ms() if slow_mo is None else max(0.0, float(slow_mo))
 
     try:
         browser = playwright.chromium.launch(
@@ -260,14 +317,6 @@ def setup_browser(
             slow_mo=resolved_slow_mo,
         )
 
-    context_kwargs: dict[str, Any] = {
-        "accept_downloads": True,
-        "ignore_https_errors": ignore_https,
-        "locale": "zh-TW",
-    }
-    if not headless:
-        context_kwargs["no_viewport"] = True
-
     context = browser.new_context(**context_kwargs)
     page = context.new_page()
     page.set_default_timeout(default_timeout_ms)
@@ -280,3 +329,115 @@ def setup_browser(
         page.on("dialog", dialog_action)
 
     return playwright, browser, context, page
+
+
+async def setup_async_browser(
+    headless: bool = False,
+    downloads_path: str | None = None,
+    ignore_https_errors: bool | None = None,
+    slow_mo: float | None = None,
+) -> tuple[Any, Any, Any]:
+    """Launch async Microsoft Edge (with Chromium fallback) returning `(playwright, browser, context)`."""
+    pw_factory = async_playwright
+    if pw_factory is None:
+        from playwright.async_api import async_playwright as pw_factory
+
+    playwright = await pw_factory().start()
+    launch_args, resolved_slow_mo, context_kwargs = _build_browser_launch_config(
+        headless=headless,
+        ignore_https_errors=ignore_https_errors,
+        slow_mo=slow_mo,
+    )
+
+    try:
+        browser = await playwright.chromium.launch(
+            channel="msedge",
+            headless=headless,
+            args=launch_args,
+            downloads_path=downloads_path,
+            slow_mo=resolved_slow_mo,
+        )
+    except Exception:
+        browser = await playwright.chromium.launch(
+            headless=headless,
+            args=launch_args,
+            downloads_path=downloads_path,
+            slow_mo=resolved_slow_mo,
+        )
+
+    context = await browser.new_context(**context_kwargs)
+    return playwright, browser, context
+
+
+def close_browser_resources(playwright: Any, browser: Any, context: Any) -> None:
+    """Safely close sync Playwright `(context, browser, playwright)` resources."""
+    for resource, method in (
+        (context, "close"),
+        (browser, "close"),
+        (playwright, "stop"),
+    ):
+        if resource is not None:
+            try:
+                getattr(resource, method)()
+            except Exception:
+                pass
+
+
+async def aclose_browser_resources(playwright: Any, browser: Any, context: Any) -> None:
+    """Safely close async Playwright `(context, browser, playwright)` resources."""
+    for resource, method in (
+        (context, "close"),
+        (browser, "close"),
+        (playwright, "stop"),
+    ):
+        if resource is not None:
+            try:
+                await getattr(resource, method)()
+            except Exception:
+                pass
+
+
+@contextmanager
+def open_browser(
+    headless: bool = False,
+    downloads_path: str | None = None,
+    dialog_action: str | Callable[[Any], None] | None = "accept",
+    default_timeout_ms: int = 30000,
+    ignore_https_errors: bool | None = None,
+    slow_mo: float | None = None,
+) -> Generator[Any, None, None]:
+    """Context manager that launches Microsoft Edge and yields `page`, auto-closing all resources."""
+    playwright = browser = context = None
+    try:
+        playwright, browser, context, page = setup_browser(
+            headless=headless,
+            downloads_path=downloads_path,
+            dialog_action=dialog_action,
+            default_timeout_ms=default_timeout_ms,
+            ignore_https_errors=ignore_https_errors,
+            slow_mo=slow_mo,
+        )
+        yield page
+    finally:
+        close_browser_resources(playwright, browser, context)
+
+
+@asynccontextmanager
+async def open_async_browser(
+    headless: bool = False,
+    downloads_path: str | None = None,
+    ignore_https_errors: bool | None = None,
+    slow_mo: float | None = None,
+) -> AsyncGenerator[Any, None]:
+    """Async context manager that launches Edge and yields shared `context`, auto-closing on exit."""
+    playwright = browser = context = None
+    try:
+        playwright, browser, context = await setup_async_browser(
+            headless=headless,
+            downloads_path=downloads_path,
+            ignore_https_errors=ignore_https_errors,
+            slow_mo=slow_mo,
+        )
+        yield context
+    finally:
+        await aclose_browser_resources(playwright, browser, context)
