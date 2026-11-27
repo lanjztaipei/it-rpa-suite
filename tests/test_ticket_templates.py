@@ -533,3 +533,48 @@ def test_ticket_template_dialog_create_edit_and_copy_modes(
     assert "建立新工單模板" in captured_texts
     assert "刪除模板" not in captured_texts
     view.destroy()
+
+
+def test_ticket_helper_view_horizontal_category_tabs_and_full_width(
+    tmp_path: Path,
+    tk_root: tk.Tk,
+) -> None:
+    """Verify TicketHelperView uses full-width content_frame and horizontal category tabs."""
+    from unittest.mock import MagicMock
+
+    from it_rpa_suite.features.ticket_helper.service import TEMPLATE_GROUPS
+    from it_rpa_suite.features.ticket_helper.view import TicketHelperView
+
+    paths = get_app_paths(base_dir=tmp_path)
+    repo = TemplateRepository(paths=paths)
+    tk_root.withdraw()
+
+    mock_app = MagicMock()
+    mock_app.scale_factor = 1.0
+    mock_app.colors = {}
+    mock_app.paths = paths
+
+    view = TicketHelperView(tk_root, mock_app, repository=repo)
+    tk_root.update_idletasks()
+
+    # Full-width content_frame occupies column 0 without 1:6:1 spacer columns
+    content_grid = view.content_frame.grid_info()
+    assert int(content_grid["column"]) == 0
+    assert int(view.columnconfigure(0, "weight")) == 1
+    assert int(view.columnconfigure(1, "weight")) == 0
+
+    # All category tabs are arranged horizontally in row 0 across distinct columns
+    tab_columns: list[int] = []
+    for group in TEMPLATE_GROUPS:
+        tab_frame = view.group_buttons[group]["frame"]
+        info = tab_frame.grid_info()
+        assert int(info["row"]) == 0
+        tab_columns.append(int(info["column"]))
+    assert tab_columns == list(range(len(TEMPLATE_GROUPS)))
+
+    # Selecting another group highlights its tab border with primary color
+    view._select_group("電腦相關")
+    assert view.active_group == "電腦相關"
+    assert view.group_buttons["電腦相關"]["frame"].cget("highlightbackground") == "#2D6CDF"
+    assert view.group_buttons["例行事項"]["frame"].cget("highlightbackground") == "#E4E9F0"
+    view.destroy()

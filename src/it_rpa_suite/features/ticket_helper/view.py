@@ -39,6 +39,7 @@ logger = get_logger(__name__)
 
 class _GroupButtonWidgets(TypedDict):
     frame: tk.Frame
+    inner: tk.Frame
     name: tk.Label
     count: tk.Label
 
@@ -579,7 +580,16 @@ class TicketHelperView(ttk.Frame):
             app, "colors", getattr(parent.winfo_toplevel(), "theme_colors", LIGHT_COLORS)
         )
         _configure_ticket_styles(parent, self.colors, sf=self.sf)
-        super().__init__(parent, style="Ticket.Page.TFrame", padding=scale(20, self.sf))
+        super().__init__(
+            parent,
+            style="Ticket.Page.TFrame",
+            padding=(
+                scale(30, self.sf),
+                scale(24, self.sf),
+                scale(30, self.sf),
+                scale(24, self.sf),
+            ),
+        )
 
         self.repository = repository or TemplateRepository(paths=getattr(app, "paths", None))
         self.templates: list[dict[str, str]] = []
@@ -620,13 +630,11 @@ class TicketHelperView(ttk.Frame):
         return scale(value, self.sf)
 
     def _build_widgets(self) -> None:
-        self.columnconfigure(0, weight=1, uniform="ticket_layout")
-        self.columnconfigure(1, weight=6, uniform="ticket_layout")
-        self.columnconfigure(2, weight=1, uniform="ticket_layout")
+        self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
         self.content_frame = ttk.Frame(self, style="Ticket.Page.TFrame")
-        self.content_frame.grid(row=0, column=1, sticky="nsew")
+        self.content_frame.grid(row=0, column=0, sticky="nsew")
         self.content_frame.columnconfigure(0, weight=1)
         self.content_frame.rowconfigure(1, weight=1)
 
@@ -653,7 +661,7 @@ class TicketHelperView(ttk.Frame):
         text_color = self.colors.get("text", "#172033")
         muted_color = self.colors.get("text_muted", "#98A2B3")
         primary_color = self.colors.get("primary", "#2D6CDF")
-        primary_soft = self.colors.get("card_hover", "#F0F5FD")
+        selected_bg = self.colors.get("button_active", "#EEF2F7")
 
         container = tk.Frame(
             self.content_frame,
@@ -662,16 +670,15 @@ class TicketHelperView(ttk.Frame):
             highlightcolor=border_color,
             highlightthickness=1,
             takefocus=0,
-            padx=self.s(12),
-            pady=self.s(12),
+            padx=self.s(14),
+            pady=self.s(14),
         )
         container.grid(row=1, column=0, sticky="nsew")
-        container.columnconfigure(0, minsize=self.s(145))
-        container.columnconfigure(1, weight=1)
-        container.rowconfigure(1, weight=1)
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(2, weight=1)
 
         toolbar = tk.Frame(container, background=surface_soft)
-        toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, self.s(10)))
+        toolbar.grid(row=0, column=0, sticky="ew", pady=(0, self.s(12)))
         toolbar.columnconfigure(0, weight=1)
 
         left_actions = tk.Frame(toolbar, background=surface_soft)
@@ -712,103 +719,88 @@ class TicketHelperView(ttk.Frame):
             cursor="hand2",
         ).grid(row=0, column=1, sticky="e")
 
-        # Left Category Sidebar
-        category_frame = tk.Frame(
-            container,
-            background=card_bg,
-            highlightbackground=border_color,
-            highlightthickness=1,
-            padx=self.s(8),
-            pady=self.s(10),
-        )
-        category_frame.grid(row=1, column=0, sticky="nsew", padx=(0, self.s(10)))
-        category_frame.columnconfigure(0, weight=1)
+        # Horizontal Category Tab Bar
+        self.group_title_var = tk.StringVar(value=self.active_group)
+        category_bar = tk.Frame(container, background=surface_soft)
+        category_bar.grid(row=1, column=0, sticky="ew", pady=(0, self.s(12)))
+        total_groups = len(TEMPLATE_GROUPS)
+        for col in range(total_groups):
+            category_bar.columnconfigure(col, weight=1, uniform="ticket_group_tab")
 
-        tk.Label(
-            category_frame,
-            text="模板分類",
-            background=card_bg,
-            foreground=text_color,
-            font=(FONT_FAMILY, self.s(10), "bold"),
-            anchor="w",
-        ).grid(
-            row=0,
-            column=0,
-            sticky="ew",
-            padx=self.s(6),
-            pady=(0, self.s(8)),
-        )
-
-        for row, group in enumerate(TEMPLATE_GROUPS, start=1):
+        for col, group in enumerate(TEMPLATE_GROUPS):
             active = group == self.active_group
-            bg = primary_soft if active else card_bg
+            bg = selected_bg if active else card_bg
+            border = primary_color if active else border_color
             item = tk.Frame(
-                category_frame,
+                category_bar,
                 background=bg,
+                highlightbackground=border,
+                highlightcolor=primary_color,
+                highlightthickness=1,
+                bd=0,
                 cursor="hand2",
                 padx=self.s(10),
                 pady=self.s(8),
             )
-            item.grid(row=row, column=0, sticky="ew", pady=self.s(2))
+            item.grid(
+                row=0,
+                column=col,
+                sticky="ew",
+                padx=(
+                    0 if col == 0 else self.s(4),
+                    0 if col == total_groups - 1 else self.s(4),
+                ),
+            )
             item.columnconfigure(0, weight=1)
 
+            inner = tk.Frame(item, background=bg, cursor="hand2")
+            inner.grid(row=0, column=0)
+
             name_label = tk.Label(
-                item,
+                inner,
                 text=group,
-                anchor="w",
+                anchor="center",
                 background=bg,
                 foreground=primary_color if active else text_color,
                 font=(FONT_FAMILY, self.s(9.5), "bold" if active else "normal"),
                 cursor="hand2",
             )
-            name_label.grid(row=0, column=0, sticky="w")
+            name_label.pack(side="left")
 
             count_label = tk.Label(
-                item,
+                inner,
                 text="0",
-                anchor="e",
+                anchor="center",
                 background=bg,
                 foreground=primary_color if active else muted_color,
                 font=(FONT_FAMILY, self.s(9)),
                 cursor="hand2",
             )
-            count_label.grid(row=0, column=1, sticky="e", padx=(self.s(6), 0))
+            count_label.pack(side="left", padx=(self.s(6), 0))
 
             def _on_select_group(_e: tk.Event[Any], g: str = group) -> Any:
                 return self._select_group(g)
 
-            for w in (item, name_label, count_label):
+            def _on_enter_group(_e: tk.Event[Any], g: str = group) -> None:
+                self._set_group_tab_hover(g, True)
+
+            def _on_leave_group(_e: tk.Event[Any], g: str = group) -> None:
+                self._set_group_tab_hover(g, False)
+
+            for w in (item, inner, name_label, count_label):
                 w.bind("<Button-1>", _on_select_group)
+                w.bind("<Enter>", _on_enter_group)
+                w.bind("<Leave>", _on_leave_group)
             self.group_buttons[group] = {
                 "frame": item,
+                "inner": inner,
                 "name": name_label,
                 "count": count_label,
             }
 
-        # Right Card Panel
-        self.group_title_var = tk.StringVar(value=self.active_group)
-        right_panel = tk.Frame(container, background=surface_soft)
-        right_panel.grid(row=1, column=1, sticky="nsew")
-        right_panel.columnconfigure(0, weight=1)
-        right_panel.rowconfigure(1, weight=1)
-
-        tk.Label(
-            right_panel,
-            textvariable=self.group_title_var,
-            background=surface_soft,
-            foreground=text_color,
-            font=(FONT_FAMILY, self.s(11), "bold"),
-            anchor="w",
-        ).grid(
-            row=0,
-            column=0,
-            sticky="ew",
-            padx=(self.s(4), 0),
-            pady=(0, self.s(6)),
-        )
-
-        canvas_frame = ttk.Frame(right_panel, style="Ticket.Card.TFrame")
-        canvas_frame.grid(row=1, column=0, sticky="nsew")
+        # Template Card List Panel
+        canvas_frame = ttk.Frame(container, style="Ticket.Card.TFrame")
+        canvas_frame.grid(row=2, column=0, sticky="nsew")
         canvas_frame.columnconfigure(0, weight=1)
         canvas_frame.rowconfigure(0, weight=1)
 
@@ -847,9 +839,7 @@ class TicketHelperView(ttk.Frame):
             background=surface_soft,
             height=self.bubble_line_height,
         )
-        self.selection_viewport.grid(
-            row=2, column=0, columnspan=2, sticky="ew", pady=(self.s(12), 0)
-        )
+        self.selection_viewport.grid(row=3, column=0, sticky="ew", pady=(self.s(12), 0))
         self.selection_viewport.grid_propagate(False)
         self.selection_viewport.columnconfigure(0, weight=1)
         self.selection_viewport.rowconfigure(0, weight=1)
@@ -901,7 +891,7 @@ class TicketHelperView(ttk.Frame):
 
         # Footer Bar
         footer = tk.Frame(container, background=surface_soft)
-        footer.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(self.s(10), 0))
+        footer.grid(row=4, column=0, sticky="ew", pady=(self.s(10), 0))
         footer.columnconfigure(0, weight=1)
 
         ttk.Label(
@@ -1207,7 +1197,7 @@ class TicketHelperView(ttk.Frame):
         self.selected_index = index
         self.selected_template_indices.append(index)
         self._sync_selection_bubbles()
-        self._update_group_sidebar()
+        self._update_group_tabs()
         self._populate_cards()
         self._on_selection_changed()
 
@@ -1378,25 +1368,44 @@ class TicketHelperView(ttk.Frame):
             return
         self.active_group = group
         self.group_title_var.set(group)
-        self._update_group_sidebar()
+        self._update_group_tabs()
         self._populate_cards()
         self.card_canvas.yview_moveto(0)
 
-    def _update_group_sidebar(self) -> None:
+    def _set_group_tab_hover(self, group: str, hovering: bool) -> None:
+        if group == self.active_group:
+            return
+        widgets = self.group_buttons.get(group)
+        if not widgets:
+            return
+        bg = (
+            self.colors.get("card_hover", "#F0F5FD")
+            if hovering
+            else self.colors.get("surface", "#FFFFFF")
+        )
+        widgets["frame"].configure(background=bg)
+        widgets["inner"].configure(background=bg)
+        widgets["name"].configure(background=bg)
+        widgets["count"].configure(background=bg)
+
+    def _update_group_tabs(self) -> None:
         counts = {group: 0 for group in TEMPLATE_GROUPS}
         for template in self.templates:
             counts[self._group_for_template(template)] += 1
 
         card_bg = self.colors.get("surface", "#FFFFFF")
-        primary_soft = self.colors.get("card_hover", "#F0F5FD")
+        selected_bg = self.colors.get("button_active", "#EEF2F7")
+        border_color = self.colors.get("border", "#E4E9F0")
         primary_color = self.colors.get("primary", "#2D6CDF")
         text_color = self.colors.get("text", "#172033")
         muted_color = self.colors.get("text_muted", "#98A2B3")
 
         for group, widgets in self.group_buttons.items():
             active = group == self.active_group
-            bg = primary_soft if active else card_bg
-            widgets["frame"].configure(background=bg)
+            bg = selected_bg if active else card_bg
+            border = primary_color if active else border_color
+            widgets["frame"].configure(background=bg, highlightbackground=border)
+            widgets["inner"].configure(background=bg)
             widgets["name"].configure(
                 text=group,
                 background=bg,
@@ -1439,7 +1448,7 @@ class TicketHelperView(ttk.Frame):
         elif self.selected_index is not None and self.selected_index >= len(self.templates):
             self.selected_index = None
         self._sync_selection_bubbles()
-        self._update_group_sidebar()
+        self._update_group_tabs()
         self._populate_cards()
         self._on_selection_changed()
 
