@@ -36,8 +36,14 @@ CATEGORY_ALIASES: dict[str, str] = {
 
 VALID_CATEGORIES = (CATEGORY_INCIDENT, CATEGORY_ROUTINE)
 
-TEMPLATE_GROUPS = ("例行事項", "電腦相關", "開給同仁", "IT交辦", "未分類")
-DEFAULT_TEMPLATE_GROUP = "未分類"
+TEMPLATE_GROUPS = ("例行事項", "電腦相關", "申請相關")
+TEMPLATE_GROUP_ALIASES: dict[str, str] = {
+    "IT交辦": "申請相關",
+    "主管交辦": "申請相關",
+    "開給同仁": "申請相關",
+    "未分類": "申請相關",
+}
+DEFAULT_TEMPLATE_GROUP = "申請相關"
 
 VALID_CORPS = ("Enterprise-HQ", "Enterprise-Branch", "Enterprise-Cloud")
 PLACEHOLDER_MARKER = "__"
@@ -135,7 +141,8 @@ class TemplateRepository:
             raise ValueError(f"不支援的工單模板類型：{raw_category}")
 
         raw_group = str(template.get("_ui_group", DEFAULT_TEMPLATE_GROUP)).strip()
-        ui_group = raw_group or DEFAULT_TEMPLATE_GROUP
+        mapped_group = TEMPLATE_GROUP_ALIASES.get(raw_group, raw_group)
+        ui_group = mapped_group if mapped_group in TEMPLATE_GROUPS else DEFAULT_TEMPLATE_GROUP
 
         normalized: dict[str, str] = {
             "category": category,

@@ -59,7 +59,21 @@ def test_template_normalization_and_validation() -> None:
     assert rtn["category"] == CATEGORY_ROUTINE
     assert rtn["sub_type"] == ""
     assert rtn["corp"] == ""
-    assert rtn["_ui_group"] == "未分類"
+    assert rtn["_ui_group"] == "申請相關"
+
+    # Legacy group names automatically migrate to '申請相關'
+    for legacy_group in ("IT交辦", "主管交辦", "開給同仁", "未分類"):
+        migrated = TemplateRepository.normalize_template(
+            {
+                "category": "Incident Request",
+                "email": "alex.chen@enterprise.local",
+                "title": "跨網段存取申請",
+                "type": "Network",
+                "resolve": "已完成防火牆策略開通。",
+                "_ui_group": legacy_group,
+            }
+        )
+        assert migrated["_ui_group"] == "申請相關"
 
     # Invalid category
     with pytest.raises(ValueError, match="不支援"):
@@ -459,13 +473,15 @@ def test_ticket_template_dialog_create_edit_and_copy_modes(
     assert add_dlg.title() == "新增工單模板"
     assert "建立新工單模板" in add_texts
     assert "刪除模板" not in add_texts
+    assert "請輸入處理紀錄與解決方案" in add_texts
+    assert "請輸入處理紀錄與解決方案）" not in add_texts
     assert add_dlg.template_group_var.get() == "電腦相關"
     add_dlg.destroy()
 
     # 2. Create mode even if caller passes metadata-only {"_ui_group": ...}
     meta_only_dlg = TicketTemplateDialog(
         tk_root,
-        template={"_ui_group": "開給同仁"},
+        template={"_ui_group": "申請相關"},
         repository=repo,
     )
     tk_root.update_idletasks()
@@ -474,10 +490,10 @@ def test_ticket_template_dialog_create_edit_and_copy_modes(
     assert meta_only_dlg.title() == "新增工單模板"
     assert "建立新工單模板" in meta_only_texts
     assert "刪除模板" not in meta_only_texts
-    assert meta_only_dlg.template_group_var.get() == "開給同仁"
+    assert meta_only_dlg.template_group_var.get() == "申請相關"
     meta_only_dlg.destroy()
 
-    # 3. Edit mode for existing template
+    # 3. Edit mode for existing template (includes delete and copy triggers)
     edit_dlg = TicketTemplateDialog(tk_root, template=existing_template, repository=repo)
     tk_root.update_idletasks()
     edit_texts = _collect_widget_texts(edit_dlg)
@@ -485,6 +501,7 @@ def test_ticket_template_dialog_create_edit_and_copy_modes(
     assert edit_dlg.title() == "編輯工單模板"
     assert "編輯工單模板" in edit_texts
     assert "刪除模板" in edit_texts
+    assert "⧉ 複製模板" in edit_texts
     edit_dlg.destroy()
 
     # 4. Copy mode hides delete button and shows copy title
@@ -508,7 +525,7 @@ def test_ticket_template_dialog_create_edit_and_copy_modes(
     mock_app.colors = {}
     mock_app.paths = paths
     view = TicketHelperView(tk_root, mock_app, repository=repo)
-    view._select_group("開給同仁")
+    view._select_group("申請相關")
 
     captured_title: str | None = None
     captured_is_edit_mode: bool | None = None
@@ -529,17 +546,17 @@ def test_ticket_template_dialog_create_edit_and_copy_modes(
     view._add_template()
     assert captured_title == "新增工單模板"
     assert captured_is_edit_mode is False
-    assert captured_group == "開給同仁"
+    assert captured_group == "申請相關"
     assert "建立新工單模板" in captured_texts
     assert "刪除模板" not in captured_texts
     view.destroy()
 
 
-def test_ticket_helper_view_horizontal_category_tabs_and_full_width(
+def test_ticket_helper_view_compact_layout_and_three_groups(
     tmp_path: Path,
     tk_root: tk.Tk,
 ) -> None:
-    """Verify TicketHelperView uses full-width content_frame and horizontal category tabs."""
+    """Verify TicketHelperView uses 3 horizontal tabs, narrowed container, and streamlined buttons."""
     from unittest.mock import MagicMock
 
     from it_rpa_suite.features.ticket_helper.service import TEMPLATE_GROUPS
@@ -557,24 +574,57 @@ def test_ticket_helper_view_horizontal_category_tabs_and_full_width(
     view = TicketHelperView(tk_root, mock_app, repository=repo)
     tk_root.update_idletasks()
 
-    # Full-width content_frame occupies column 0 without 1:6:1 spacer columns
+    # Narrowed centered content_frame (1:5:1) matched to 3 category tabs
     content_grid = view.content_frame.grid_info()
-    assert int(content_grid["column"]) == 0
+    assert int(content_grid["column"]) == 1
     assert int(view.columnconfigure(0, "weight")) == 1
-    assert int(view.columnconfigure(1, "weight")) == 0
+    assert int(view.columnconfigure(1, "weight")) == 5
+    assert int(view.columnconfigure(2, "weight")) == 1
 
-    # All category tabs are arranged horizontally in row 0 across distinct columns
+    # Exactly 3 category tabs arranged horizontally in row 0
+    assert TEMPLATE_GROUPS == ("例行事項", "電腦相關", "申請相關")
     tab_columns: list[int] = []
     for group in TEMPLATE_GROUPS:
         tab_frame = view.group_buttons[group]["frame"]
         info = tab_frame.grid_info()
         assert int(info["row"]) == 0
         tab_columns.append(int(info["column"]))
-    assert tab_columns == list(range(len(TEMPLATE_GROUPS)))
+    assert tab_columns == [0, 1, 2]
 
     # Selecting another group highlights its tab border with primary color
     view._select_group("電腦相關")
     assert view.active_group == "電腦相關"
     assert view.group_buttons["電腦相關"]["frame"].cget("highlightbackground") == "#2D6CDF"
     assert view.group_buttons["例行事項"]["frame"].cget("highlightbackground") == "#E4E9F0"
+
+    # Refresh & copy buttons removed; add button sits at bottom-right inside list container
+    assert view.header_info_icon.winfo_exists()
+    assert not hasattr(view, "copy_button")
+    assert not hasattr(view, "refresh_button")
+    assert view.add_button.master.master is view.list_container
+    assert view.add_button.grid_info()["sticky"] == "e"
+
+    # Demo button sits directly to the left of run button in footer actions
+    assert view.demo_button.master is view.run_button.master
+    assert (
+        int(view.demo_button.grid_info()["column"])
+        == int(view.run_button.grid_info()["column"]) - 1
+    )
+
+    # Queue collapses when empty & expands when populated
+    tk_root.update()
+    assert view.selection_viewport.grid_info() == {}
+    assert view.clear_queue_button.grid_info() == {}
+
+    view.fill_sample_data()
+    tk_root.update()
+    assert len(view.selected_template_indices) == 2
+    assert view.selection_viewport.grid_info() != {}
+    assert view.clear_queue_button.grid_info() != {}
+
+    view._clear_queue()
+    tk_root.update()
+    assert view.selected_template_indices == []
+    assert view.selection_viewport.grid_info() == {}
+    assert view.clear_queue_button.grid_info() == {}
     view.destroy()
