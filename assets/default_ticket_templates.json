@@ -7,7 +7,7 @@
     "sub_type": "RAM / Storage Upgrade",
     "corp": "Enterprise-HQ",
     "resolve": "已協助使用者完成記憶體擴充。",
-    "_ui_group": "電腦相關"
+    "_ui_group": "設備相關"
   },
   {
     "category": "Incident Request",
@@ -17,7 +17,7 @@
     "sub_type": "VPN Client Access",
     "corp": "Enterprise-HQ",
     "resolve": "已清除過期快取、重新匯入憑證並驗證遠端連線正常。",
-    "_ui_group": "電腦相關"
+    "_ui_group": "設備相關"
   },
   {
     "category": "Routine Task",
@@ -47,7 +47,7 @@
     "sub_type": "Standard Office Suite",
     "corp": "Enterprise-HQ",
     "resolve": "已依部門基準完成企業辦公套件授權啟用、雲端硬碟掛載與樓層多功能事務機驅動設定。",
-    "_ui_group": "開給同仁"
+    "_ui_group": "申請相關"
   },
   {
     "category": "Incident Request",
@@ -57,6 +57,6 @@
     "sub_type": "Firewall & VLAN Policy",
     "corp": "Enterprise-Branch",
     "resolve": "已核對資安簽核單號，完成防火牆存取策略開通。",
-    "_ui_group": "IT交辦"
+    "_ui_group": "申請相關"
   }
 ]
