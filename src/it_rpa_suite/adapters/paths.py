@@ -75,6 +75,10 @@ class AppPaths:
         return self.assets_dir / "sample_borrow_report.xlsx"
 
     @property
+    def sample_form_audit_report_file(self) -> Path:
+        return self.assets_dir / "sample_form_audit_report.xlsx"
+
+    @property
     def data_dir(self) -> Path:
         return self.base_dir / "data"
 
