@@ -32,7 +32,7 @@
   {
     "category": "Routine Task",
     "email": "itadmin@enterprise.local",
-    "title": "每週端點防護代理程式 (EDR) 連線率稽核",
+    "title": "每週端點防護 (EDR) 連線率稽核",
     "type": "Security Compliance",
     "sub_type": "",
     "corp": "",
@@ -42,7 +42,7 @@
   {
     "category": "Incident Request",
     "email": "emp__@enterprise.local",
-    "title": "新進同仁標準辦公軟體與印表機權限建置",
+    "title": "新進同仁標準權限建置",
     "type": "Software",
     "sub_type": "Standard Office Suite",
     "corp": "Enterprise-HQ",

@@ -377,7 +377,7 @@ class TicketTemplateDialog(tk.Toplevel):
             card,
             owner=self,
             textvariable=self.email_var,
-            placeholder="例如：alex.chen@enterprise.local（支援 __ 標記）",
+            placeholder="例如：alex.chen@enterprise.local",
             justify="left",
         )
         self._field(card, 1, "請求人 Email", self.email_entry)
@@ -400,7 +400,7 @@ class TicketTemplateDialog(tk.Toplevel):
             card,
             owner=self,
             textvariable=self.title_var,
-            placeholder="請輸入工單主題（支援 __ 待填標記，開單前自動聚焦）",
+            placeholder="請輸入工單主題",
             justify="left",
         )
         self._field(card, 2, "工單主題", self.title_entry)
@@ -411,7 +411,7 @@ class TicketTemplateDialog(tk.Toplevel):
             card,
             owner=self,
             textvariable=self.type_var,
-            placeholder="例如：Hardware / Network / Data Center Inspection",
+            placeholder="例如：Hardware / Network",
             justify="left",
         )
         self.type_entry.grid(row=3, column=1, sticky="ew", pady=self.s(6))
@@ -443,7 +443,7 @@ class TicketTemplateDialog(tk.Toplevel):
             card,
             owner=self,
             textvariable=self.resolve_var,
-            placeholder="請輸入處理紀錄與解決方案（將自動注入 iframe 富文本編輯器）",
+            placeholder="請輸入處理紀錄與解決方案）",
             justify="left",
         )
         self._field(card, 6, "解決方案", self.resolve_entry)
