@@ -195,6 +195,7 @@ class TicketTemplateDialog(tk.Toplevel):
         parent: tk.Misc,
         template: dict[str, Any] | None = None,
         *,
+        default_group: str = DEFAULT_TEMPLATE_GROUP,
         runtime_edit: bool = False,
         template_number: int | None = None,
         total_count: int | None = None,
@@ -218,6 +219,11 @@ class TicketTemplateDialog(tk.Toplevel):
         self.original_template: dict[str, Any] = dict(template or {})
         self.runtime_edit = runtime_edit
         self.copy_mode = copy_mode
+        self.is_edit_mode = (
+            not runtime_edit
+            and not copy_mode
+            and any(key != "_ui_group" for key in self.original_template)
+        )
         self.template_number = template_number
         self.total_count = total_count
 
@@ -230,7 +236,9 @@ class TicketTemplateDialog(tk.Toplevel):
             self.title(f"確認開單內容 第 {suffix} 筆")
         else:
             self.title(
-                "複製工單模板" if copy_mode else ("編輯工單模板" if template else "新增工單模板")
+                "複製工單模板"
+                if copy_mode
+                else ("編輯工單模板" if self.is_edit_mode else "新增工單模板")
             )
 
         self.geometry(f"{self.s(640)}x{self.s(500)}")
@@ -249,9 +257,10 @@ class TicketTemplateDialog(tk.Toplevel):
             value=self.original_template.get("corp", VALID_CORPS[0]) or VALID_CORPS[0]
         )
         self.resolve_var = tk.StringVar(value=self.original_template.get("resolve", ""))
-        self.template_group_var = tk.StringVar(
-            value=self.original_template.get("_ui_group", DEFAULT_TEMPLATE_GROUP)
-        )
+        initial_group = self.original_template.get("_ui_group", default_group)
+        if initial_group not in TEMPLATE_GROUPS:
+            initial_group = DEFAULT_TEMPLATE_GROUP
+        self.template_group_var = tk.StringVar(value=initial_group)
 
         _configure_ticket_styles(self, self.theme_colors, sf=self.sf)
         self._build_widgets()
@@ -329,7 +338,7 @@ class TicketTemplateDialog(tk.Toplevel):
             else (
                 "複製工單模板"
                 if self.copy_mode
-                else ("編輯工單模板" if self.original_template else "建立新工單模板")
+                else ("編輯工單模板" if self.is_edit_mode else "建立新工單模板")
             )
         )
         ttk.Label(
@@ -442,7 +451,7 @@ class TicketTemplateDialog(tk.Toplevel):
         actions = ttk.Frame(page, style="Ticket.Page.TFrame")
         actions.grid(row=2, column=0, sticky="ew", pady=(self.s(14), 0))
 
-        if self.original_template and not self.runtime_edit and not self.copy_mode:
+        if self.is_edit_mode:
             ttk.Button(
                 actions,
                 text="刪除模板",
@@ -1461,7 +1470,7 @@ class TicketHelperView(ttk.Frame):
             return
         dialog = TicketTemplateDialog(
             self,
-            template={"_ui_group": self.active_group},
+            default_group=self.active_group,
             repository=self.repository,
         )
         self.wait_window(dialog)

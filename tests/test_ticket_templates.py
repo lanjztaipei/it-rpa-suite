@@ -408,3 +408,128 @@ def test_runtime_dialog_placeholder_focus_and_mock_call_uia_detection(
     assert toast.winfo_exists()
     toast.destroy()
     mock_win.destroy()
+
+
+def _collect_widget_texts(root: tk.Misc) -> list[str]:
+    texts: list[str] = []
+    for child in root.winfo_children():
+        try:
+            text = str(child.cget("text"))
+        except tk.TclError:
+            text = ""
+        if text:
+            texts.append(text)
+        texts.extend(_collect_widget_texts(child))
+    return texts
+
+
+def test_ticket_template_dialog_create_edit_and_copy_modes(
+    tmp_path: Path,
+    tk_root: tk.Tk,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify TicketTemplateDialog distinguishes add mode from edit/copy modes."""
+    from unittest.mock import MagicMock
+
+    from it_rpa_suite.features.ticket_helper.view import (
+        TicketHelperView,
+        TicketTemplateDialog,
+    )
+
+    paths = get_app_paths(base_dir=tmp_path)
+    repo = TemplateRepository(paths=paths)
+    existing_template = {
+        "category": "Incident Request",
+        "email": "alex.chen@enterprise.local",
+        "title": "VPN 連線異常排除",
+        "type": "Network",
+        "sub_type": "VPN Client Access",
+        "corp": "Enterprise-HQ",
+        "resolve": "已重設憑證並確認連線正常。",
+        "_ui_group": "電腦相關",
+    }
+
+    tk_root.withdraw()
+
+    # 1. Create mode via default_group
+    add_dlg = TicketTemplateDialog(tk_root, default_group="電腦相關", repository=repo)
+    tk_root.update_idletasks()
+    add_texts = _collect_widget_texts(add_dlg)
+    assert add_dlg.is_edit_mode is False
+    assert add_dlg.title() == "新增工單模板"
+    assert "建立新工單模板" in add_texts
+    assert "刪除模板" not in add_texts
+    assert add_dlg.template_group_var.get() == "電腦相關"
+    add_dlg.destroy()
+
+    # 2. Create mode even if caller passes metadata-only {"_ui_group": ...}
+    meta_only_dlg = TicketTemplateDialog(
+        tk_root,
+        template={"_ui_group": "開給同仁"},
+        repository=repo,
+    )
+    tk_root.update_idletasks()
+    meta_only_texts = _collect_widget_texts(meta_only_dlg)
+    assert meta_only_dlg.is_edit_mode is False
+    assert meta_only_dlg.title() == "新增工單模板"
+    assert "建立新工單模板" in meta_only_texts
+    assert "刪除模板" not in meta_only_texts
+    assert meta_only_dlg.template_group_var.get() == "開給同仁"
+    meta_only_dlg.destroy()
+
+    # 3. Edit mode for existing template
+    edit_dlg = TicketTemplateDialog(tk_root, template=existing_template, repository=repo)
+    tk_root.update_idletasks()
+    edit_texts = _collect_widget_texts(edit_dlg)
+    assert edit_dlg.is_edit_mode is True
+    assert edit_dlg.title() == "編輯工單模板"
+    assert "編輯工單模板" in edit_texts
+    assert "刪除模板" in edit_texts
+    edit_dlg.destroy()
+
+    # 4. Copy mode hides delete button and shows copy title
+    copy_dlg = TicketTemplateDialog(
+        tk_root,
+        template=existing_template,
+        copy_mode=True,
+        repository=repo,
+    )
+    tk_root.update_idletasks()
+    copy_texts = _collect_widget_texts(copy_dlg)
+    assert copy_dlg.is_edit_mode is False
+    assert copy_dlg.title() == "複製工單模板"
+    assert "複製工單模板" in copy_texts
+    assert "刪除模板" not in copy_texts
+    copy_dlg.destroy()
+
+    # 5. TicketHelperView._add_template opens add mode with active_group pre-selected
+    mock_app = MagicMock()
+    mock_app.scale_factor = 1.0
+    mock_app.colors = {}
+    mock_app.paths = paths
+    view = TicketHelperView(tk_root, mock_app, repository=repo)
+    view._select_group("開給同仁")
+
+    captured_title: str | None = None
+    captured_is_edit_mode: bool | None = None
+    captured_group: str | None = None
+    captured_texts: list[str] = []
+
+    def _capture_and_close(dialog: tk.Misc | None = None) -> None:
+        nonlocal captured_title, captured_is_edit_mode, captured_group, captured_texts
+        assert isinstance(dialog, TicketTemplateDialog)
+        tk_root.update_idletasks()
+        captured_title = dialog.title()
+        captured_is_edit_mode = dialog.is_edit_mode
+        captured_group = dialog.template_group_var.get()
+        captured_texts = _collect_widget_texts(dialog)
+        dialog.destroy()
+
+    monkeypatch.setattr(view, "wait_window", _capture_and_close)
+    view._add_template()
+    assert captured_title == "新增工單模板"
+    assert captured_is_edit_mode is False
+    assert captured_group == "開給同仁"
+    assert "建立新工單模板" in captured_texts
+    assert "刪除模板" not in captured_texts
+    view.destroy()
