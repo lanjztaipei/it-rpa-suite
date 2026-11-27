@@ -103,7 +103,7 @@ line-ending = "lf"
 
 [tool.mypy]
 python_version = "3.12"
-mypy_path = ["src"]
+mypy_path = ["src", "tools"]
 warn_unused_configs = false
 warn_redundant_casts = true
 warn_unused_ignores = true

@@ -15,7 +15,7 @@ import json
 import os
 import sys
 import urllib.request
-from collections.abc import AsyncGenerator, Callable, Generator, Iterator
+from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
@@ -25,6 +25,11 @@ EDGE_LAUNCH_ARGS = [
     "--disable-translate",
     ("--disable-features=DownloadBubble,DownloadBubbleV2,Translate,TranslateUI,msEdgeTranslate"),
 ]
+
+# Lazy placeholders: avoid eagerly importing Playwright on `import tool_sdk`
+# while preserving `monkeypatch.setattr(tool_sdk, "sync_playwright", ...)` compatibility.
+sync_playwright: Any = None
+async_playwright: Any = None
 
 DEFAULT_SANDBOX_CREDENTIALS: dict[str, str] = {
     "email": "alex.chen@enterprise.local",
@@ -160,7 +165,7 @@ def read_credentials(
     missing = [
         key
         for key in ("email", "portal_account", "portal_password", "nac_account", "nac_password")
-        if not str(data.get(key) or "").strip()
+        if not (data.get(key) or "").strip()
     ]
     if missing:
         raise RuntimeError(f"系統憑證檔缺少必要欄位（{', '.join(missing)}），請重新設定憑證")
@@ -206,7 +211,7 @@ def get_sandbox_base_url(preferred_port: int = 8000) -> str:
 
 
 @contextmanager
-def ensure_sandbox_server(preferred_port: int = 8000) -> Iterator[str]:
+def ensure_sandbox_server(preferred_port: int = 8000) -> Generator[str, None, None]:
     """Yield an active sandbox URL; start an embedded server if none is running."""
     active_url = get_sandbox_base_url(preferred_port=preferred_port)
     if _is_sandbox_alive(active_url):
@@ -261,7 +266,7 @@ def _build_browser_launch_config(
     """Build shared Edge launch args, `slow_mo` delay, and `new_context` options."""
     launch_args = [] if headless else list(EDGE_LAUNCH_ARGS)
     ignore_https = (
-        should_ignore_https_errors() if ignore_https_errors is None else bool(ignore_https_errors)
+        should_ignore_https_errors() if ignore_https_errors is None else ignore_https_errors
     )
     resolved_slow_mo = get_slow_mo_ms() if slow_mo is None else max(0.0, float(slow_mo))
 
@@ -285,9 +290,11 @@ def setup_browser(
     slow_mo: float | None = None,
 ) -> tuple[Any, Any, Any, Any]:
     """Launch Microsoft Edge (with fallback to Chromium) and return `(playwright, browser, context, page)`."""
-    from playwright.sync_api import sync_playwright
+    pw_factory = sync_playwright
+    if pw_factory is None:
+        from playwright.sync_api import sync_playwright as pw_factory
 
-    playwright = sync_playwright().start()
+    playwright = pw_factory().start()
     launch_args, resolved_slow_mo, context_kwargs = _build_browser_launch_config(
         headless=headless,
         ignore_https_errors=ignore_https_errors,
@@ -331,9 +338,11 @@ async def setup_async_browser(
     slow_mo: float | None = None,
 ) -> tuple[Any, Any, Any]:
     """Launch async Microsoft Edge (with Chromium fallback) returning `(playwright, browser, context)`."""
-    from playwright.async_api import async_playwright
+    pw_factory = async_playwright
+    if pw_factory is None:
+        from playwright.async_api import async_playwright as pw_factory
 
-    playwright = await async_playwright().start()
+    playwright = await pw_factory().start()
     launch_args, resolved_slow_mo, context_kwargs = _build_browser_launch_config(
         headless=headless,
         ignore_https_errors=ignore_https_errors,
