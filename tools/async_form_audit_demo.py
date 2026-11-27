@@ -18,7 +18,6 @@ from typing import Any
 from urllib.parse import quote
 
 from openpyxl import load_workbook
-from playwright.async_api import async_playwright
 
 # Ensure tools/ directory is on sys.path when invoked from any working directory
 _TOOLS_DIR = Path(__file__).resolve().parent
@@ -27,11 +26,9 @@ if str(_TOOLS_DIR) not in sys.path:
 
 from tool_sdk import (  # noqa: E402
     BASE_DIR,
-    EDGE_LAUNCH_ARGS,
     ensure_sandbox_server,
-    get_slow_mo_ms,
     read_credentials,
-    should_ignore_https_errors,
+    setup_async_browser,
 )
 
 SAMPLE_REPORT_FILENAME = "sample_form_audit_report.xlsx"
@@ -165,44 +162,6 @@ def ask_concurrency(
         if minimum <= value <= maximum:
             return value
         print(f"錯誤：請輸入 {minimum} 到 {maximum} 之間的數字。")
-
-
-async def setup_async_browser(
-    headless: bool = False,
-    ignore_https_errors: bool | None = None,
-    slow_mo: float | None = None,
-) -> tuple[Any, Any, Any]:
-    """Launch async Microsoft Edge (with Chromium fallback) returning `(playwright, browser, context)`."""
-    playwright = await async_playwright().start()
-    launch_args = [] if headless else EDGE_LAUNCH_ARGS
-    ignore_https = (
-        should_ignore_https_errors() if ignore_https_errors is None else bool(ignore_https_errors)
-    )
-    resolved_slow_mo = get_slow_mo_ms() if slow_mo is None else max(0.0, float(slow_mo))
-
-    try:
-        browser = await playwright.chromium.launch(
-            channel="msedge",
-            headless=headless,
-            args=launch_args,
-            slow_mo=resolved_slow_mo,
-        )
-    except Exception:
-        browser = await playwright.chromium.launch(
-            headless=headless,
-            args=launch_args,
-            slow_mo=resolved_slow_mo,
-        )
-
-    context_kwargs: dict[str, Any] = {
-        "ignore_https_errors": ignore_https,
-        "locale": "zh-TW",
-    }
-    if not headless:
-        context_kwargs["no_viewport"] = True
-
-    context = await browser.new_context(**context_kwargs)
-    return playwright, browser, context
 
 
 async def login_once(context: Any, sandbox_url: str, creds: dict[str, str]) -> None:

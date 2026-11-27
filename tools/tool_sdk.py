@@ -4,7 +4,7 @@ Provides:
 - Project root (`BASE_DIR`) and `data/` directory resolution across source and frozen modes
 - Windows DPAPI credential decryption (`data/credentials.dat`)
 - Active Sandbox HTTP server discovery and auto-start fallback (`get_sandbox_base_url`, `ensure_sandbox_server`)
-- Playwright Microsoft Edge browser launcher (`setup_browser`)
+- Sync & Async Playwright Microsoft Edge browser launchers (`setup_browser`, `setup_async_browser`)
 """
 
 from __future__ import annotations
@@ -18,9 +18,6 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-
-import win32crypt
-from playwright.sync_api import sync_playwright
 
 EDGE_LAUNCH_ARGS = [
     "--start-maximized",
@@ -72,6 +69,8 @@ BASE_DIR: Path = get_base_dir()
 def decrypt_credentials(encrypted_text: str) -> dict[str, str]:
     """Decrypt Base64 DPAPI blob into a credential dictionary."""
     try:
+        import win32crypt
+
         encrypted_blob = base64.b64decode(encrypted_text.strip().encode("utf-8"))
         _, raw_bytes = win32crypt.CryptUnprotectData(
             encrypted_blob,
@@ -228,6 +227,30 @@ def get_slow_mo_ms(default: float = 0.0) -> float:
     return value if value >= 0 else default
 
 
+def _build_browser_launch_config(
+    *,
+    headless: bool,
+    ignore_https_errors: bool | None,
+    slow_mo: float | None,
+) -> tuple[list[str], float, dict[str, Any]]:
+    """Build shared Edge launch args, `slow_mo` delay, and `new_context` options."""
+    launch_args = [] if headless else list(EDGE_LAUNCH_ARGS)
+    ignore_https = (
+        should_ignore_https_errors() if ignore_https_errors is None else bool(ignore_https_errors)
+    )
+    resolved_slow_mo = get_slow_mo_ms() if slow_mo is None else max(0.0, float(slow_mo))
+
+    context_kwargs: dict[str, Any] = {
+        "accept_downloads": True,
+        "ignore_https_errors": ignore_https,
+        "locale": "zh-TW",
+    }
+    if not headless:
+        context_kwargs["no_viewport"] = True
+
+    return launch_args, resolved_slow_mo, context_kwargs
+
+
 def setup_browser(
     headless: bool = False,
     downloads_path: str | None = None,
@@ -237,12 +260,14 @@ def setup_browser(
     slow_mo: float | None = None,
 ) -> tuple[Any, Any, Any, Any]:
     """Launch Microsoft Edge (with fallback to Chromium) and return `(playwright, browser, context, page)`."""
+    from playwright.sync_api import sync_playwright
+
     playwright = sync_playwright().start()
-    launch_args = [] if headless else EDGE_LAUNCH_ARGS
-    ignore_https = (
-        should_ignore_https_errors() if ignore_https_errors is None else bool(ignore_https_errors)
+    launch_args, resolved_slow_mo, context_kwargs = _build_browser_launch_config(
+        headless=headless,
+        ignore_https_errors=ignore_https_errors,
+        slow_mo=slow_mo,
     )
-    resolved_slow_mo = get_slow_mo_ms() if slow_mo is None else max(0.0, float(slow_mo))
 
     try:
         browser = playwright.chromium.launch(
@@ -260,14 +285,6 @@ def setup_browser(
             slow_mo=resolved_slow_mo,
         )
 
-    context_kwargs: dict[str, Any] = {
-        "accept_downloads": True,
-        "ignore_https_errors": ignore_https,
-        "locale": "zh-TW",
-    }
-    if not headless:
-        context_kwargs["no_viewport"] = True
-
     context = browser.new_context(**context_kwargs)
     page = context.new_page()
     page.set_default_timeout(default_timeout_ms)
@@ -280,3 +297,39 @@ def setup_browser(
         page.on("dialog", dialog_action)
 
     return playwright, browser, context, page
+
+
+async def setup_async_browser(
+    headless: bool = False,
+    downloads_path: str | None = None,
+    ignore_https_errors: bool | None = None,
+    slow_mo: float | None = None,
+) -> tuple[Any, Any, Any]:
+    """Launch async Microsoft Edge (with Chromium fallback) returning `(playwright, browser, context)`."""
+    from playwright.async_api import async_playwright
+
+    playwright = await async_playwright().start()
+    launch_args, resolved_slow_mo, context_kwargs = _build_browser_launch_config(
+        headless=headless,
+        ignore_https_errors=ignore_https_errors,
+        slow_mo=slow_mo,
+    )
+
+    try:
+        browser = await playwright.chromium.launch(
+            channel="msedge",
+            headless=headless,
+            args=launch_args,
+            downloads_path=downloads_path,
+            slow_mo=resolved_slow_mo,
+        )
+    except Exception:
+        browser = await playwright.chromium.launch(
+            headless=headless,
+            args=launch_args,
+            downloads_path=downloads_path,
+            slow_mo=resolved_slow_mo,
+        )
+
+    context = await browser.new_context(**context_kwargs)
+    return playwright, browser, context
