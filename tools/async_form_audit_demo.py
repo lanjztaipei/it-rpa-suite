@@ -19,14 +19,22 @@ from urllib.parse import quote
 
 from openpyxl import load_workbook
 
-# Ensure tools/ directory is on sys.path when invoked from any working directory
-_TOOLS_DIR = Path(__file__).resolve().parent
+# Ensure `tools/` is on sys.path whether run from `tools/` or `tools/<subdir>/`
+_TOOLS_DIR = next(
+    (
+        parent
+        for parent in (Path(__file__).resolve().parent, *Path(__file__).resolve().parents)
+        if (parent / "tool_sdk.py").is_file()
+    ),
+    Path(__file__).resolve().parent,
+)
 if str(_TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(_TOOLS_DIR))
 
 from tool_sdk import (  # noqa: E402
-    BASE_DIR,
+    DOWNLOADS_DIR,
     ensure_sandbox_server,
+    get_assets_dir,
     open_async_browser,
     read_credentials,
 )
@@ -39,15 +47,10 @@ MAX_CONCURRENCY = 10
 
 def resolve_sample_workbook_path(base_dir: Path | None = None) -> Path:
     """Locate the bundled sample audit workbook in source or packaged mode."""
-    root = (base_dir or BASE_DIR).resolve()
-    candidates = (
-        root / "assets" / SAMPLE_REPORT_FILENAME,
-        root / "_internal" / "assets" / SAMPLE_REPORT_FILENAME,
-    )
-    for path in candidates:
-        if path.is_file():
-            return path
-    raise FileNotFoundError(f"找不到內建範例 Excel：{candidates[0]}（請確認 assets 目錄完整）")
+    candidate = get_assets_dir(base_dir) / SAMPLE_REPORT_FILENAME
+    if candidate.is_file():
+        return candidate
+    raise FileNotFoundError(f"找不到內建範例 Excel：{candidate}（請確認 assets 目錄完整）")
 
 
 def make_output_path(input_path: Path, output_dir: Path) -> Path:
@@ -270,8 +273,7 @@ async def main() -> None:
 
     concurrency = ask_concurrency()
     input_path = resolve_sample_workbook_path()
-    output_dir = BASE_DIR / "data" / "downloads"
-    output_path = make_output_path(input_path, output_dir)
+    output_path = make_output_path(input_path, DOWNLOADS_DIR)
 
     form_numbers = load_form_numbers(input_path)
     print(f"\n讀取範例報表：{input_path.name}（共 {len(form_numbers)} 筆表單）")

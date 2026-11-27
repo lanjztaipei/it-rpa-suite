@@ -1,7 +1,7 @@
 """Standard SDK for standalone external tools in the `tools/` directory.
 
 Provides:
-- Project root (`BASE_DIR`) and `data/` directory resolution across source and frozen modes
+- Project root (`BASE_DIR`) and standard directory helpers (`TOOLS_DIR`, `DATA_DIR`, `DOWNLOADS_DIR`, `get_assets_dir`)
 - Windows DPAPI credential decryption (`data/credentials.dat`)
 - Active Sandbox HTTP server discovery and auto-start fallback (`get_sandbox_base_url`, `ensure_sandbox_server`)
 - Sync & Async Playwright Microsoft Edge launchers and context managers
@@ -65,6 +65,30 @@ def get_base_dir() -> Path:
 
 
 BASE_DIR: Path = get_base_dir()
+TOOLS_DIR: Path = BASE_DIR / "tools"
+DATA_DIR: Path = BASE_DIR / "data"
+DOWNLOADS_DIR: Path = DATA_DIR / "downloads"
+
+
+def get_downloads_dir(base_dir: Path | None = None, *, create: bool = False) -> Path:
+    """Return `<base_dir>/data/downloads`, optionally creating the directory."""
+    target = (base_dir or BASE_DIR).resolve() / "data" / "downloads"
+    if create:
+        target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def get_assets_dir(base_dir: Path | None = None) -> Path:
+    """Locate the bundled `assets/` directory in source or PyInstaller `_internal/` layout."""
+    root = (base_dir or BASE_DIR).resolve()
+    candidates = (
+        root / "assets",
+        root / "_internal" / "assets",
+    )
+    for path in candidates:
+        if path.is_dir():
+            return path
+    return candidates[0]
 
 
 def decrypt_credentials(encrypted_text: str) -> dict[str, str]:

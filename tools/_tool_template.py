@@ -34,6 +34,7 @@ if str(_TOOLS_DIR) not in sys.path:
 
 from tool_sdk import (  # noqa: E402
     BASE_DIR,
+    DOWNLOADS_DIR,
     ensure_sandbox_server,
     open_browser,
     read_credentials,
@@ -47,6 +48,7 @@ def main() -> None:
     """Entry point for the standalone toolbox script."""
     creds = read_credentials()
     print(f"[SDK] 專案根目錄：{BASE_DIR}")
+    print(f"[SDK] 預設下載目錄：{DOWNLOADS_DIR}")
     print(f"[SDK] 已載入憑證：{creds['email']} (Portal 帳號：{creds['portal_account']})")
 
     with (

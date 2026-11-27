@@ -14,8 +14,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Ensure tools/ directory is on sys.path when invoked from any working directory
-_TOOLS_DIR = Path(__file__).resolve().parent
+# Ensure `tools/` is on sys.path whether run from `tools/` or `tools/<subdir>/`
+_TOOLS_DIR = next(
+    (
+        parent
+        for parent in (Path(__file__).resolve().parent, *Path(__file__).resolve().parents)
+        if (parent / "tool_sdk.py").is_file()
+    ),
+    Path(__file__).resolve().parent,
+)
 if str(_TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(_TOOLS_DIR))
 
