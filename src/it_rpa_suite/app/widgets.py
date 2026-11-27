@@ -683,6 +683,7 @@ class BubbleList(ttk.Frame):
         items: list[Any],
         display_text: Callable[[Any], str] = str,
         on_remove: Callable[[int], Any] | None = None,
+        on_render: Callable[[], Any] | None = None,
         min_bubble_width: int | None = None,
         bubble_height: int | None = None,
         horizontal_gap: int | None = None,
@@ -716,6 +717,7 @@ class BubbleList(ttk.Frame):
         self.items = items
         self.display_text = display_text
         self.on_remove = on_remove
+        self.on_render = on_render
         self.min_bubble_width = min_bubble_width
         self.bubble_height = bubble_height
         self.horizontal_gap = horizontal_gap
@@ -888,6 +890,8 @@ class BubbleList(ttk.Frame):
             self.configure(height=required_height)
         except tk.TclError:
             pass
+        if callable(self.on_render):
+            self.on_render()
 
 
 def _extract_readable_preview_from_html(raw_html: str) -> str:
@@ -1447,6 +1451,8 @@ class ModernDropdown(tk.Frame):
         textvariable: tk.StringVar | None = None,
         placeholder: str = "請選擇項目",
         width: int | None = None,
+        height: int | None = None,
+        font_size: float = 10.0,
         on_select: Callable[[str], Any] | None = None,
         sf: float | None = None,
     ) -> None:
@@ -1459,15 +1465,18 @@ class ModernDropdown(tk.Frame):
         )
         self._items: tuple[str, ...] = tuple(options)
         self._placeholder = placeholder
+        self._font_size = float(font_size)
         self._on_select = on_select
         self.variable = textvariable or tk.StringVar(value=placeholder)
         self._enabled = True
         self._hovered = False
         self._popup: tk.Toplevel | None = None
+        self._previous_grab: tk.Misc | None = None
         self._outside_click_bind_id: str | None = None
         self._root_configure_bind_id: str | None = None
         self._escape_bind_id: str | None = None
         self._dropdown_width = width if width is not None else scale(210, self.sf)
+        dropdown_height = height if height is not None else scale(38, self.sf)
 
         super().__init__(
             parent,
@@ -1477,7 +1486,7 @@ class ModernDropdown(tk.Frame):
             highlightthickness=1,
             bd=0,
             width=self._dropdown_width,
-            height=scale(38, self.sf),
+            height=dropdown_height,
             cursor="hand2",
             takefocus=1,
         )
@@ -1488,7 +1497,7 @@ class ModernDropdown(tk.Frame):
         self._value_label = tk.Label(
             self,
             text="",
-            font=(FONT_FAMILY, scale(10, self.sf)),
+            font=(FONT_FAMILY, scale(self._font_size, self.sf)),
             background=self.colors.get("surface", "#FFFFFF"),
             foreground=self.colors.get("text", "#172033"),
             anchor="w",
@@ -1634,7 +1643,8 @@ class ModernDropdown(tk.Frame):
         self.update_idletasks()
         x = self.winfo_rootx()
         y = self.winfo_rooty() + self.winfo_height() + scale(4, self.sf)
-        width = max(self.winfo_width(), self._dropdown_width)
+        actual_width = self.winfo_width()
+        width = actual_width if actual_width > 1 else self._dropdown_width
 
         surface = self.colors.get("surface", "#FFFFFF")
         border = self.colors.get("border", "#E4E9F0")
@@ -1682,7 +1692,7 @@ class ModernDropdown(tk.Frame):
                 text=option,
                 font=(
                     FONT_FAMILY,
-                    scale(10, self.sf),
+                    scale(self._font_size, self.sf),
                     "bold" if is_selected else "normal",
                 ),
                 background=row_bg,
@@ -1746,6 +1756,17 @@ class ModernDropdown(tk.Frame):
         popup.bind("<Escape>", lambda _e: self.close_popup())
 
         self._popup = popup
+        current_grab = self._toplevel.grab_current()
+        if current_grab is not None and current_grab is not popup:
+            self._previous_grab = current_grab
+            try:
+                popup.grab_set()
+                popup.bind("<Button-1>", self._handle_popup_click, add="+")
+            except tk.TclError:
+                self._previous_grab = None
+        else:
+            self._previous_grab = None
+
         self._outside_click_bind_id = self._toplevel.bind(
             "<Button-1>", self._handle_outside_click, add="+"
         )
@@ -1756,6 +1777,18 @@ class ModernDropdown(tk.Frame):
             "<Escape>", lambda _e: self.close_popup(), add="+"
         )
         self._refresh_display()
+
+    def _handle_popup_click(self, event: Any) -> None:
+        if not self.is_open or self._popup is None:
+            return
+        try:
+            px, py = self._popup.winfo_rootx(), self._popup.winfo_rooty()
+            pw, ph = self._popup.winfo_width(), self._popup.winfo_height()
+            if px <= event.x_root < px + pw and py <= event.y_root < py + ph:
+                return
+        except tk.TclError:
+            pass
+        self.close_popup()
 
     def _handle_outside_click(self, event: Any) -> None:
         if not self.is_open:
@@ -1802,10 +1835,21 @@ class ModernDropdown(tk.Frame):
         if self._popup is not None:
             try:
                 if self._popup.winfo_exists():
+                    if self._popup.grab_current() is self._popup:
+                        self._popup.grab_release()
                     self._popup.destroy()
             except tk.TclError:
                 pass
             self._popup = None
+
+        if self._previous_grab is not None:
+            previous_grab = self._previous_grab
+            self._previous_grab = None
+            try:
+                if previous_grab.winfo_exists():
+                    previous_grab.grab_set()
+            except tk.TclError:
+                pass
 
         self._refresh_display()
 

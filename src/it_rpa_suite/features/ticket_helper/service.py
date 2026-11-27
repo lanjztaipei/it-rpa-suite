@@ -36,8 +36,9 @@ CATEGORY_ALIASES: dict[str, str] = {
 
 VALID_CATEGORIES = (CATEGORY_INCIDENT, CATEGORY_ROUTINE)
 
-TEMPLATE_GROUPS = ("例行事項", "電腦相關", "申請相關")
+TEMPLATE_GROUPS = ("例行事項", "設備相關", "申請相關")
 TEMPLATE_GROUP_ALIASES: dict[str, str] = {
+    "電腦相關": "設備相關",
     "IT交辦": "申請相關",
     "主管交辦": "申請相關",
     "開給同仁": "申請相關",

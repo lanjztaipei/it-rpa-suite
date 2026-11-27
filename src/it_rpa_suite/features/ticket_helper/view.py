@@ -17,6 +17,7 @@ from it_rpa_suite.app.theme import (
 )
 from it_rpa_suite.app.widgets import (
     BubbleList,
+    ModernDropdown,
     ModernScrollbar,
     create_info_tooltip,
     create_modern_entry,
@@ -88,7 +89,6 @@ def _configure_ticket_styles(
     card_bg = colors.get("surface", "#FFFFFF")
     text_color = colors.get("text", "#172033")
     muted_color = colors.get("text_muted", "#98A2B3")
-    border_color = colors.get("border", "#E4E9F0")
     danger_color = colors.get("danger", "#D84A4A")
     pressed_color = colors.get("button_pressed", "#E9EEF5")
 
@@ -143,11 +143,12 @@ def _configure_ticket_styles(
         foreground=[("disabled", muted_color)],
         relief=[("pressed", "flat")],
     )
+    card_hover = colors.get("card_hover", "#F0F5FD")
     style.configure(
         "Ticket.Icon.TButton",
-        font=(FONT_FAMILY, scale(9, sf)),
-        padding=(scale(5, sf), scale(2, sf)),
-        background=surface_soft,
+        font=(FONT_FAMILY, scale(9.5, sf)),
+        padding=(scale(6, sf), scale(4, sf)),
+        background=card_hover,
         foreground=text_color,
         relief="flat",
         borderwidth=0,
@@ -168,25 +169,6 @@ def _configure_ticket_styles(
     style.map(
         "Ticket.Danger.TButton",
         background=[("active", card_bg), ("pressed", pressed_color)],
-    )
-    style.configure(
-        "Ticket.Readonly.TCombobox",
-        font=(FONT_FAMILY, scale(10, sf)),
-        padding=(scale(10, sf), scale(8, sf)),
-        foreground=text_color,
-        fieldbackground=card_bg,
-        background=card_bg,
-        bordercolor=border_color,
-        lightcolor=border_color,
-        darkcolor=border_color,
-        arrowsize=scale(13, sf),
-    )
-    style.map(
-        "Ticket.Readonly.TCombobox",
-        fieldbackground=[("readonly", card_bg)],
-        foreground=[("readonly", text_color)],
-        selectbackground=[("readonly", card_bg)],
-        selectforeground=[("readonly", text_color)],
     )
     return style
 
@@ -267,12 +249,13 @@ class TicketTemplateDialog(tk.Toplevel):
             initial_group = DEFAULT_TEMPLATE_GROUP
         self.template_group_var = tk.StringVar(value=initial_group)
 
+        self._dropdowns: list[ModernDropdown] = []
         _configure_ticket_styles(self, self.theme_colors, sf=self.sf)
         self._build_widgets()
         self._update_category_fields()
 
         self.protocol("WM_DELETE_WINDOW", self._cancel)
-        self.bind("<Escape>", lambda _e: self._cancel())
+        self.bind("<Escape>", self._on_escape)
 
         if self.runtime_edit:
             self.after(50, self._focus_runtime_placeholder)
@@ -357,26 +340,30 @@ class TicketTemplateDialog(tk.Toplevel):
         card.grid(row=1, column=0, sticky="nsew")
         card.columnconfigure(1, weight=1)
 
-        category_combo = ttk.Combobox(
+        self.category_dropdown = ModernDropdown(
             card,
+            options=VALID_CATEGORIES,
             textvariable=self.category_var,
-            values=VALID_CATEGORIES,
-            state="readonly",
-            style="Ticket.Readonly.TCombobox",
+            placeholder="請選擇工單類型",
+            font_size=10.5,
+            on_select=lambda _v: self._update_category_fields(),
+            sf=self.sf,
         )
-        self._field(card, 0, "工單類型", category_combo)
-        category_combo.bind("<<ComboboxSelected>>", lambda _e: self._update_category_fields())
+        self._dropdowns.append(self.category_dropdown)
+        self._field(card, 0, "工單類型", self.category_dropdown)
 
-        group_combo = None
+        self.group_dropdown: ModernDropdown | None = None
         if not self.runtime_edit:
-            group_combo = ttk.Combobox(
+            self.group_dropdown = ModernDropdown(
                 card,
+                options=TEMPLATE_GROUPS,
                 textvariable=self.template_group_var,
-                values=TEMPLATE_GROUPS,
-                state="readonly",
-                style="Ticket.Readonly.TCombobox",
+                placeholder="請選擇顯示分類",
+                font_size=10.5,
+                sf=self.sf,
             )
-            self._field(card, 7, "顯示分類", group_combo)
+            self._dropdowns.append(self.group_dropdown)
+            self._field(card, 7, "顯示分類", self.group_dropdown)
 
         self.email_entry = create_modern_entry(
             card,
@@ -386,20 +373,6 @@ class TicketTemplateDialog(tk.Toplevel):
             justify="left",
         )
         self._field(card, 1, "請求人 Email", self.email_entry)
-
-        form_input_font = self.email_entry.cget("font")
-        category_combo.configure(font=form_input_font)
-        if group_combo is not None:
-            group_combo.configure(font=form_input_font)
-
-        card_bg = self.theme_colors.get("surface", "#FFFFFF")
-        text_color = self.theme_colors.get("text", "#172033")
-        primary_color = self.theme_colors.get("primary", "#2D6CDF")
-        self.option_add("*TCombobox*Listbox.font", form_input_font)
-        self.option_add("*TCombobox*Listbox.background", card_bg)
-        self.option_add("*TCombobox*Listbox.foreground", text_color)
-        self.option_add("*TCombobox*Listbox.selectBackground", primary_color)
-        self.option_add("*TCombobox*Listbox.selectForeground", "#FFFFFF")
 
         self.title_entry = create_modern_entry(
             card,
@@ -434,15 +407,16 @@ class TicketTemplateDialog(tk.Toplevel):
 
         self.corp_label = ttk.Label(card, text="所屬廠區", style="Ticket.CardTitle.TLabel")
         self.corp_label.grid(row=5, column=0, sticky="w", padx=(0, self.s(16)), pady=self.s(6))
-        self.corp_combo = ttk.Combobox(
+        self.corp_dropdown = ModernDropdown(
             card,
+            options=VALID_CORPS,
             textvariable=self.corp_var,
-            values=VALID_CORPS,
-            state="readonly",
-            style="Ticket.Readonly.TCombobox",
-            font=form_input_font,
+            placeholder="請選擇所屬廠區",
+            font_size=10.5,
+            sf=self.sf,
         )
-        self.corp_combo.grid(row=5, column=1, sticky="ew", pady=self.s(6))
+        self._dropdowns.append(self.corp_dropdown)
+        self.corp_dropdown.grid(row=5, column=1, sticky="ew", pady=self.s(6))
 
         self.resolve_entry = create_modern_entry(
             card,
@@ -487,14 +461,29 @@ class TicketTemplateDialog(tk.Toplevel):
             command=self._save,
         ).pack(side="right")
 
+    def _close_dropdowns(self) -> None:
+        for dropdown in self._dropdowns:
+            dropdown.close_popup()
+
+    def _on_escape(self, _event: Any = None) -> str:
+        closed_any = False
+        for dropdown in self._dropdowns:
+            if dropdown.is_open:
+                dropdown.close_popup()
+                closed_any = True
+        if not closed_any:
+            self._cancel()
+        return "break"
+
     def _update_category_fields(self) -> None:
+        self._close_dropdowns()
         if self.category_var.get() == CATEGORY_INCIDENT:
             self.type_label.configure(text="服務子分類")
             for widget in (
                 self.sub_type_label,
                 self.sub_type_entry,
                 self.corp_label,
-                self.corp_combo,
+                self.corp_dropdown,
             ):
                 widget.grid()
         else:
@@ -503,11 +492,12 @@ class TicketTemplateDialog(tk.Toplevel):
                 self.sub_type_label,
                 self.sub_type_entry,
                 self.corp_label,
-                self.corp_combo,
+                self.corp_dropdown,
             ):
                 widget.grid_remove()
 
     def _save(self) -> None:
+        self._close_dropdowns()
         category = self.category_var.get()
         group = (
             self.template_group_var.get()
@@ -534,6 +524,7 @@ class TicketTemplateDialog(tk.Toplevel):
         self.destroy()
 
     def _delete(self) -> None:
+        self._close_dropdowns()
         title = self.original_template.get("title", "")
         if show_confirm_dialog(
             parent=self,
@@ -547,11 +538,13 @@ class TicketTemplateDialog(tk.Toplevel):
             self.destroy()
 
     def _request_copy(self) -> None:
+        self._close_dropdowns()
         self.result = None
         self.action = "copy"
         self.destroy()
 
     def _cancel(self) -> None:
+        self._close_dropdowns()
         self.result = None
         self.action = None
         self.destroy()
@@ -615,24 +608,15 @@ class TicketHelperView(ttk.Frame):
         self._toplevel = self.winfo_toplevel()
         self.current_future: Future[Any] | None = None
         self._is_preparing = False
-        self._ctrl_n_binding_id: str | None = None
 
         self.selected_index: int | None = None
         self.selected_template_indices: list[int] = []
         self._card_widgets: list[tk.Frame] = []
-        self._visible_template_indices: list[int] = []
+        self._card_actions: list[tk.Frame] = []
         self._resize_after_id: str | None = None
 
-        # Drag-and-drop state
-        self.drag_start_index: int | None = None
-        self.drag_start_x: int | None = None
-        self.drag_start_y: int | None = None
-        self.drag_active = False
-        self.drag_threshold = 6
-        self.drag_window: tk.Toplevel | None = None
-
-        self.card_height = self.s(38)
-        self.card_gap = self.s(8)
+        self.card_height = self.s(58)
+        self.card_gap = self.s(10)
         self.bubble_line_height = self.s(38)
 
         self.selection_var = tk.StringVar(value="待開單佇列：0 筆")
@@ -658,7 +642,7 @@ class TicketHelperView(ttk.Frame):
         self._build_header()
         self._build_template_workspace()
         self._build_queue_section()
-        self._bind_shortcuts()
+        self.bind("<Destroy>", self._on_destroy, add="+")
 
     def _build_header(self) -> None:
         header = ttk.Frame(self.content_frame, style="Ticket.Page.TFrame")
@@ -680,10 +664,9 @@ class TicketHelperView(ttk.Frame):
             title_row,
             (
                 "操作說明：\n"
-                "• 點擊模板卡片即可加入下方待開單佇列（支援重複加入）\n"
-                "• 拖曳卡片或點擊 ↑ ↓ 可調整模板順序\n"
-                "• 雙擊卡片或點擊 ✏ 可編輯、複製或刪除模板\n"
-                "• 快捷鍵：Ctrl + N 快速新增模板"
+                "• 點擊模板卡片即可開單\n"
+                "• 點擊 ↑ ↓ 可調整模板順序\n"
+                "• 點擊 ✏ 可編輯、複製或刪除模板"
             ),
         )
         self.header_info_icon.grid(row=0, column=1, padx=(self.s(8), 0))
@@ -891,6 +874,7 @@ class TicketHelperView(ttk.Frame):
             items=self.selected_template_bubbles,
             display_text=str,
             on_remove=self._remove_selected_template_at_index,
+            on_render=self._bind_selection_bubbles_mousewheel,
             min_bubble_width=self.s(120),
             reserved_rows=1,
         )
@@ -909,6 +893,7 @@ class TicketHelperView(ttk.Frame):
         )
         self.selection_canvas.bind("<Configure>", self._on_selection_canvas_resize)
         self.selection_bubble_list.bind("<Configure>", self._update_selection_viewport, add="+")
+        self._bind_selection_mousewheel_recursive(self.selection_viewport)
         self.selection_viewport.grid_remove()
 
         # Footer Bar
@@ -994,30 +979,38 @@ class TicketHelperView(ttk.Frame):
             else:
                 self.selection_scrollbar.grid_remove()
                 self.selection_canvas.yview_moveto(0)
+            self._bind_selection_mousewheel_recursive(self.selection_bubble_list)
         except tk.TclError:
             pass
 
-    def _bind_shortcuts(self) -> None:
-        self._ctrl_n_binding_id = self._toplevel.bind(
-            "<Control-n>", self._on_ctrl_n_shortcut, add="+"
-        )
-        self.bind("<Destroy>", self._on_destroy, add="+")
+    def _on_selection_mousewheel(self, event: Any) -> str:
+        try:
+            if not self._is_view_alive() or not self.selection_canvas.winfo_exists():
+                return "break"
+            if self.selection_bubble_list.winfo_reqheight() <= self.selection_canvas.winfo_height():
+                return "break"
+            delta = getattr(event, "delta", 0)
+            if not delta:
+                return "break"
+            direction = -int(delta / 120) or (-1 if delta > 0 else 1)
+            self.selection_canvas.yview_scroll(direction, "units")
+        except tk.TclError:
+            pass
+        return "break"
 
-    def _on_ctrl_n_shortcut(self, _event: Any = None) -> None:
-        if self._is_view_alive():
-            self._add_template()
+    def _bind_selection_bubbles_mousewheel(self) -> None:
+        if hasattr(self, "selection_bubble_list"):
+            self._bind_selection_mousewheel_recursive(self.selection_bubble_list)
+
+    def _bind_selection_mousewheel_recursive(self, widget: tk.Misc) -> None:
+        widget.bind("<MouseWheel>", self._on_selection_mousewheel)
+        for child in widget.winfo_children():
+            self._bind_selection_mousewheel_recursive(child)
 
     def _on_destroy(self, event: Any = None) -> None:
         if event is not None and event.widget is not self:
             return
         self._unbind_mousewheel()
-        self._destroy_drag_ghost()
-        if self._ctrl_n_binding_id is not None:
-            try:
-                self._toplevel.unbind("<Control-n>", self._ctrl_n_binding_id)
-            except tk.TclError:
-                pass
-            self._ctrl_n_binding_id = None
         if self._resize_after_id is not None:
             try:
                 self.after_cancel(self._resize_after_id)
@@ -1043,7 +1036,7 @@ class TicketHelperView(ttk.Frame):
         for widget in self.cards_frame.winfo_children():
             widget.destroy()
         self._card_widgets.clear()
-        self._visible_template_indices.clear()
+        self._card_actions.clear()
 
         surface_soft = self.colors.get("surface_soft", "#F8FAFC")
         card_bg = self.colors.get("surface", "#FFFFFF")
@@ -1051,6 +1044,7 @@ class TicketHelperView(ttk.Frame):
         text_color = self.colors.get("text", "#172033")
         muted_color = self.colors.get("text_muted", "#98A2B3")
         primary_color = self.colors.get("primary", "#2D6CDF")
+        card_hover = self.colors.get("card_hover", "#F0F5FD")
 
         if not self.templates:
             tk.Label(
@@ -1092,20 +1086,29 @@ class TicketHelperView(ttk.Frame):
                 height=self.card_height,
             )
             card.grid_propagate(False)
+            card.rowconfigure(0, weight=1)
             card.columnconfigure(0, weight=1)
 
-            badge_text = "故障需求" if template.get("category") == CATEGORY_INCIDENT else "例行維運"
             title_label = tk.Label(
                 card,
-                text=f"[{badge_text}]  {template.get('title', '')}",
+                text=template.get("title", ""),
                 background=card_bg,
                 foreground=text_color,
-                font=(FONT_FAMILY, self.s(9.5)),
+                font=(FONT_FAMILY, self.s(10.5), "bold"),
                 anchor="w",
                 justify="left",
                 cursor="hand2",
             )
-            title_label.grid(row=0, column=0, sticky="nsew", padx=(self.s(14), self.s(8)), pady=0)
+            title_label.grid(
+                row=0,
+                column=0,
+                sticky="nsew",
+                padx=(self.s(16), self.s(8)),
+                pady=0,
+            )
+
+            actions_frame = tk.Frame(card, background=card_hover)
+            actions_frame.grid(row=0, column=1, sticky="e", padx=(self.s(4), self.s(10)))
 
             def _move_up(i: int = index) -> Any:
                 return self._move_template_step(i, -1)
@@ -1117,66 +1120,78 @@ class TicketHelperView(ttk.Frame):
                 return self._edit_template_at(i)
 
             up_btn = ttk.Button(
-                card,
+                actions_frame,
                 text="↑",
                 width=2,
                 command=_move_up,
                 style="Ticket.Icon.TButton",
                 cursor="hand2",
             )
-            up_btn.grid(row=0, column=1, sticky="e", padx=(0, self.s(2)), pady=self.s(4))
+            up_btn.grid(row=0, column=0, padx=(0, self.s(2)))
 
             down_btn = ttk.Button(
-                card,
+                actions_frame,
                 text="↓",
                 width=2,
                 command=_move_down,
                 style="Ticket.Icon.TButton",
                 cursor="hand2",
             )
-            down_btn.grid(row=0, column=2, sticky="e", padx=(0, self.s(4)), pady=self.s(4))
+            down_btn.grid(row=0, column=1, padx=(0, self.s(4)))
 
             edit_button = ttk.Button(
-                card,
+                actions_frame,
                 text="✏",
                 width=3,
                 command=_edit_tpl,
                 style="Ticket.Icon.TButton",
                 cursor="hand2",
             )
-            edit_button.grid(row=0, column=3, sticky="e", padx=(0, self.s(8)), pady=self.s(4))
+            edit_button.grid(row=0, column=2)
 
-            def _on_press(event: tk.Event[Any], i: int = index) -> Any:
-                return self._on_card_press(event, i)
+            actions_frame.grid_remove()
 
-            def _on_double_click(_event: tk.Event[Any], i: int = index) -> Any:
-                return self._edit_template_at(i)
+            def _on_card_click(_event: tk.Event[Any], i: int = index) -> Any:
+                return self._select_card(i)
+
+            hover_surfaces: tuple[tk.Widget, ...] = (
+                card,
+                title_label,
+                actions_frame,
+            )
 
             def _on_card_enter(
                 _event: tk.Event[Any],
                 c: tk.Frame = card,
-                labels: tuple[tk.Label, ...] = (title_label,),
+                surfaces: tuple[tk.Widget, ...] = hover_surfaces,
+                title: tk.Label = title_label,
+                actions: tk.Frame = actions_frame,
             ) -> Any:
-                return self._set_card_hover(c, labels, True)
+                return self._set_card_hover(c, surfaces, title, actions, True)
 
             def _on_card_leave(
                 _event: tk.Event[Any],
                 c: tk.Frame = card,
-                labels: tuple[tk.Label, ...] = (title_label,),
+                surfaces: tuple[tk.Widget, ...] = hover_surfaces,
+                title: tk.Label = title_label,
+                actions: tk.Frame = actions_frame,
             ) -> Any:
-                return self._set_card_hover(c, labels, False)
+                if self._is_pointer_inside(c):
+                    return None
+                return self._set_card_hover(c, surfaces, title, actions, False)
 
-            widgets = (card, title_label)
-            for w in widgets:
-                w.bind("<Button-1>", _on_press)
-                w.bind("<B1-Motion>", self._on_drag_motion)
-                w.bind("<ButtonRelease-1>", self._on_drag_drop)
-                w.bind("<Double-1>", _on_double_click)
+            clickable_widgets = (card, title_label)
+            for w in clickable_widgets:
+                w.bind("<Button-1>", _on_card_click)
                 w.bind("<Enter>", _on_card_enter)
                 w.bind("<Leave>", _on_card_leave)
 
+            for action_w in (actions_frame, up_btn, down_btn, edit_button):
+                action_w.bind("<Enter>", _on_card_enter)
+                action_w.bind("<Leave>", _on_card_leave)
+
             self._card_widgets.append(card)
-            self._visible_template_indices.append(index)
+            self._card_actions.append(actions_frame)
 
         self._layout_cards()
 
@@ -1223,10 +1238,24 @@ class TicketHelperView(ttk.Frame):
         except tk.TclError:
             pass
 
+    @staticmethod
+    def _is_pointer_inside(widget: tk.Widget) -> bool:
+        try:
+            if not widget.winfo_exists():
+                return False
+            px, py = widget.winfo_pointerx(), widget.winfo_pointery()
+            x1, y1 = widget.winfo_rootx(), widget.winfo_rooty()
+            x2, y2 = x1 + widget.winfo_width(), y1 + widget.winfo_height()
+            return x1 <= px < x2 and y1 <= py < y2
+        except tk.TclError:
+            return False
+
     def _set_card_hover(
         self,
         card: tk.Frame,
-        labels: tuple[tk.Label, ...],
+        surfaces: tuple[tk.Widget, ...],
+        title_label: tk.Label,
+        actions_frame: tk.Frame,
         hovered: bool,
     ) -> None:
         bg = (
@@ -1234,17 +1263,27 @@ class TicketHelperView(ttk.Frame):
             if hovered
             else self.colors.get("surface", "#FFFFFF")
         )
-        card.configure(background=bg)
-        for label in labels:
-            label.configure(background=bg)
+        title_fg = (
+            self.colors.get("primary", "#2D6CDF") if hovered else self.colors.get("text", "#172033")
+        )
+        try:
+            if not card.winfo_exists():
+                return
+            for surface in surfaces:
+                surface.configure(background=bg)  # type: ignore[call-arg]
+            title_label.configure(foreground=title_fg)
+            if hovered:
+                actions_frame.grid()
+            else:
+                actions_frame.grid_remove()
+        except tk.TclError:
+            pass
 
     def _select_card(self, index: int) -> None:
         """Append the clicked template to the execution queue (duplicates allowed)."""
         self.selected_index = index
         self.selected_template_indices.append(index)
         self._sync_selection_bubbles()
-        self._update_group_tabs()
-        self._populate_cards()
         self._on_selection_changed()
 
     def _sync_selection_bubbles(self) -> None:
@@ -1258,6 +1297,7 @@ class TicketHelperView(ttk.Frame):
         self.selected_template_indices[:] = valid_indices
         if hasattr(self, "selection_bubble_list"):
             self.selection_bubble_list.render()
+            self._bind_selection_mousewheel_recursive(self.selection_bubble_list)
             self.after_idle(self._update_selection_viewport)
 
     def _remove_selected_template_at_index(self, queue_index: int) -> None:
@@ -1296,113 +1336,6 @@ class TicketHelperView(ttk.Frame):
             self._refresh_tree(selected_index=target_index)
         except Exception as exc:
             logger.exception("移動工單模板順序失敗")
-            messagebox.showerror("排序失敗", str(exc), parent=self)
-
-    def _on_card_press(self, event: Any, index: int) -> None:
-        self.drag_start_index = index
-        self.drag_start_x = event.x_root
-        self.drag_start_y = event.y_root
-        self.drag_active = False
-
-    def _create_drag_ghost(self, template: dict[str, str]) -> None:
-        self._destroy_drag_ghost()
-        drag_win = tk.Toplevel(self)
-        drag_win.overrideredirect(True)
-        drag_win.attributes("-topmost", True)
-        try:
-            drag_win.attributes("-alpha", 0.88)
-        except tk.TclError:
-            pass
-
-        primary = self.colors.get("primary", "#2D6CDF")
-        primary_soft = self.colors.get("card_hover", "#F0F5FD")
-        text_color = self.colors.get("text", "#172033")
-
-        outer = tk.Frame(drag_win, background=primary, padx=1, pady=1)
-        outer.pack(fill="both", expand=True)
-        inner = tk.Frame(outer, background=primary_soft, padx=self.s(14), pady=self.s(8))
-        inner.pack(fill="both", expand=True)
-        tk.Label(
-            inner,
-            text=template.get("title", ""),
-            font=(FONT_FAMILY, self.s(9), "bold"),
-            foreground=text_color,
-            background=primary_soft,
-            anchor="w",
-        ).pack(anchor="w")
-        self.drag_window = drag_win
-
-    def _destroy_drag_ghost(self) -> None:
-        if self.drag_window is not None:
-            try:
-                self.drag_window.destroy()
-            except Exception:
-                pass
-            self.drag_window = None
-
-    def _on_drag_motion(self, event: Any) -> None:
-        if self.drag_start_index is None or self.drag_start_x is None or self.drag_start_y is None:
-            return
-
-        if not self.drag_active:
-            dx = abs(event.x_root - self.drag_start_x)
-            dy = abs(event.y_root - self.drag_start_y)
-            if max(dx, dy) < self.drag_threshold:
-                return
-            self.drag_active = True
-            self._create_drag_ghost(self.templates[self.drag_start_index])
-
-        if self.drag_window is not None:
-            self.drag_window.geometry(f"+{event.x_root + 15}+{event.y_root + 15}")
-
-    def _card_index_at_pointer(self, x_root: int, y_root: int) -> int | None:
-        for index, card in enumerate(self._card_widgets):
-            x1, y1 = card.winfo_rootx(), card.winfo_rooty()
-            x2, y2 = x1 + card.winfo_width(), y1 + card.winfo_height()
-            if x1 <= x_root <= x2 and y1 <= y_root <= y2:
-                return self._visible_template_indices[index]
-        return None
-
-    def _on_drag_drop(self, event: Any) -> None:
-        self._destroy_drag_ghost()
-        if self.drag_start_index is None:
-            return
-
-        start_index = self.drag_start_index
-        was_dragging = self.drag_active
-        self.drag_start_index = None
-        self.drag_start_x = None
-        self.drag_start_y = None
-        self.drag_active = False
-
-        if not was_dragging:
-            self._select_card(start_index)
-            return
-
-        target_index = self._card_index_at_pointer(event.x_root, event.y_root)
-        if target_index is None or target_index == start_index:
-            return
-        try:
-            step = 1 if target_index > start_index else -1
-            current = start_index
-            for _ in range(abs(target_index - start_index)):
-                current = self.repository.move_template(current, step)
-            self.templates = self.repository.load_templates()
-
-            remapped_indices: list[int] = []
-            for sel_idx in self.selected_template_indices:
-                if sel_idx == start_index:
-                    remapped_indices.append(target_index)
-                elif start_index < target_index and start_index < sel_idx <= target_index:
-                    remapped_indices.append(sel_idx - 1)
-                elif target_index < start_index and target_index <= sel_idx < start_index:
-                    remapped_indices.append(sel_idx + 1)
-                else:
-                    remapped_indices.append(sel_idx)
-            self.selected_template_indices[:] = remapped_indices
-            self._refresh_tree(selected_index=target_index)
-        except Exception as exc:
-            logger.exception("拖曳調整工單模板順序失敗")
             messagebox.showerror("排序失敗", str(exc), parent=self)
 
     def _group_for_template(self, template: dict[str, str]) -> str:

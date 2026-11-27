@@ -36,13 +36,13 @@ def test_template_normalization_and_validation() -> None:
             "sub_type": "VPN Client Access",
             "corp": "Enterprise-HQ",
             "resolve": "已重設憑證並確認連線正常。",
-            "_ui_group": "電腦相關",
+            "_ui_group": "設備相關",
         }
     )
     assert inc["category"] == CATEGORY_INCIDENT
     assert inc["sub_type"] == "VPN Client Access"
     assert inc["corp"] == "Enterprise-HQ"
-    assert inc["_ui_group"] == "電腦相關"
+    assert inc["_ui_group"] == "設備相關"
 
     # Routine Task clears sub_type and corp automatically
     rtn = TemplateRepository.normalize_template(
@@ -61,8 +61,15 @@ def test_template_normalization_and_validation() -> None:
     assert rtn["corp"] == ""
     assert rtn["_ui_group"] == "申請相關"
 
-    # Legacy group names automatically migrate to '申請相關'
-    for legacy_group in ("IT交辦", "主管交辦", "開給同仁", "未分類"):
+    # Legacy group names automatically migrate to current group names
+    legacy_expected = {
+        "電腦相關": "設備相關",
+        "IT交辦": "申請相關",
+        "主管交辦": "申請相關",
+        "開給同仁": "申請相關",
+        "未分類": "申請相關",
+    }
+    for legacy_group, expected_group in legacy_expected.items():
         migrated = TemplateRepository.normalize_template(
             {
                 "category": "Incident Request",
@@ -73,7 +80,7 @@ def test_template_normalization_and_validation() -> None:
                 "_ui_group": legacy_group,
             }
         )
-        assert migrated["_ui_group"] == "申請相關"
+        assert migrated["_ui_group"] == expected_group
 
     # Invalid category
     with pytest.raises(ValueError, match="不支援"):
@@ -134,7 +141,7 @@ def test_template_repository_crud_sorting_and_atomic_write(tmp_path: Path) -> No
             "sub_type": "RAM / Storage Upgrade",
             "corp": "Enterprise-HQ",
             "resolve": "更換記憶體模組。",
-            "_ui_group": "電腦相關",
+            "_ui_group": "設備相關",
         }
     )
     assert t1["title"] == "第一筆工單模板"
@@ -289,7 +296,7 @@ def test_batch_tickets_end_to_end_playwright(tmp_path: Path) -> None:
             "sub_type": "RAM / Storage Upgrade",
             "corp": "Enterprise-HQ",
             "resolve": "已完成記憶體擴充與穩定度燒機測試。",
-            "_ui_group": "電腦相關",
+            "_ui_group": "設備相關",
         },
         {
             "category": "Routine Task",
@@ -357,7 +364,7 @@ def test_runtime_dialog_placeholder_focus_and_mock_call_uia_detection(
             "sub_type": "RAM / Storage Upgrade",
             "corp": "Enterprise-HQ",
             "resolve": "完成升級。",
-            "_ui_group": "電腦相關",
+            "_ui_group": "設備相關",
         },
         template_number=1,
         total_count=2,
@@ -460,13 +467,13 @@ def test_ticket_template_dialog_create_edit_and_copy_modes(
         "sub_type": "VPN Client Access",
         "corp": "Enterprise-HQ",
         "resolve": "已重設憑證並確認連線正常。",
-        "_ui_group": "電腦相關",
+        "_ui_group": "設備相關",
     }
 
     tk_root.withdraw()
 
     # 1. Create mode via default_group
-    add_dlg = TicketTemplateDialog(tk_root, default_group="電腦相關", repository=repo)
+    add_dlg = TicketTemplateDialog(tk_root, default_group="設備相關", repository=repo)
     tk_root.update_idletasks()
     add_texts = _collect_widget_texts(add_dlg)
     assert add_dlg.is_edit_mode is False
@@ -475,7 +482,7 @@ def test_ticket_template_dialog_create_edit_and_copy_modes(
     assert "刪除模板" not in add_texts
     assert "請輸入處理紀錄與解決方案" in add_texts
     assert "請輸入處理紀錄與解決方案）" not in add_texts
-    assert add_dlg.template_group_var.get() == "電腦相關"
+    assert add_dlg.template_group_var.get() == "設備相關"
     add_dlg.destroy()
 
     # 2. Create mode even if caller passes metadata-only {"_ui_group": ...}
@@ -493,7 +500,9 @@ def test_ticket_template_dialog_create_edit_and_copy_modes(
     assert meta_only_dlg.template_group_var.get() == "申請相關"
     meta_only_dlg.destroy()
 
-    # 3. Edit mode for existing template (includes delete and copy triggers)
+    # 3. Edit mode for existing template (includes delete and copy triggers & ModernDropdowns)
+    from it_rpa_suite.app.widgets import ModernDropdown
+
     edit_dlg = TicketTemplateDialog(tk_root, template=existing_template, repository=repo)
     tk_root.update_idletasks()
     edit_texts = _collect_widget_texts(edit_dlg)
@@ -502,6 +511,15 @@ def test_ticket_template_dialog_create_edit_and_copy_modes(
     assert "編輯工單模板" in edit_texts
     assert "刪除模板" in edit_texts
     assert "⧉ 複製模板" in edit_texts
+    assert isinstance(edit_dlg.category_dropdown, ModernDropdown)
+    assert isinstance(edit_dlg.corp_dropdown, ModernDropdown)
+    assert isinstance(edit_dlg.group_dropdown, ModernDropdown)
+    # Selecting Routine Task via ModernDropdown hides corp_dropdown and restores modal grab on close
+    edit_dlg.category_dropdown.open_popup()
+    assert edit_dlg.category_dropdown.is_open is True
+    edit_dlg.category_dropdown._select_option("Routine Task")
+    assert edit_dlg.category_dropdown.is_open is False
+    assert edit_dlg.corp_dropdown.grid_info() == {}
     edit_dlg.destroy()
 
     # 4. Copy mode hides delete button and shows copy title
@@ -582,7 +600,7 @@ def test_ticket_helper_view_compact_layout_and_three_groups(
     assert int(view.columnconfigure(2, "weight")) == 1
 
     # Exactly 3 category tabs arranged horizontally in row 0
-    assert TEMPLATE_GROUPS == ("例行事項", "電腦相關", "申請相關")
+    assert TEMPLATE_GROUPS == ("例行事項", "設備相關", "申請相關")
     tab_columns: list[int] = []
     for group in TEMPLATE_GROUPS:
         tab_frame = view.group_buttons[group]["frame"]
@@ -592,9 +610,9 @@ def test_ticket_helper_view_compact_layout_and_three_groups(
     assert tab_columns == [0, 1, 2]
 
     # Selecting another group highlights its tab border with primary color
-    view._select_group("電腦相關")
-    assert view.active_group == "電腦相關"
-    assert view.group_buttons["電腦相關"]["frame"].cget("highlightbackground") == "#2D6CDF"
+    view._select_group("設備相關")
+    assert view.active_group == "設備相關"
+    assert view.group_buttons["設備相關"]["frame"].cget("highlightbackground") == "#2D6CDF"
     assert view.group_buttons["例行事項"]["frame"].cget("highlightbackground") == "#E4E9F0"
 
     # Refresh & copy buttons removed; add button sits at bottom-right inside list container
@@ -611,7 +629,31 @@ def test_ticket_helper_view_compact_layout_and_three_groups(
         == int(view.run_button.grid_info()["column"]) - 1
     )
 
-    # Queue collapses when empty & expands when populated
+    # Card proportions, clean single-line layout (no accent bar/subtitle), & hover-only actions
+    assert view.card_height == 58
+    assert view.card_gap == 10
+    assert len(view._card_widgets) >= 1
+    assert len(view._card_actions) == len(view._card_widgets)
+    first_card = view._card_widgets[0]
+    first_actions = view._card_actions[0]
+    card_labels = [w for w in first_card.winfo_children() if isinstance(w, tk.Label)]
+    assert len(card_labels) == 1
+    assert " · " not in str(card_labels[0].cget("text"))
+    assert first_actions.grid_info() == {}
+    first_card.event_generate("<Enter>")
+    tk_root.update_idletasks()
+    assert first_actions.grid_info() != {}
+    first_card.event_generate("<Leave>")
+    tk_root.update_idletasks()
+    assert first_actions.grid_info() == {}
+    assert not first_card.bind("<Double-1>")
+
+    # Selecting a card appends to queue without recreating card widgets
+    view._select_card(0)
+    assert view._card_widgets[0] is first_card
+    view._clear_queue()
+
+    # Queue collapses when empty, expands with items, and binds recursive MouseWheel on bubbles
     tk_root.update()
     assert view.selection_viewport.grid_info() == {}
     assert view.clear_queue_button.grid_info() == {}
@@ -621,6 +663,9 @@ def test_ticket_helper_view_compact_layout_and_three_groups(
     assert len(view.selected_template_indices) == 2
     assert view.selection_viewport.grid_info() != {}
     assert view.clear_queue_button.grid_info() != {}
+    assert view.selection_canvas.bind("<MouseWheel>")
+    assert view.selection_bubble_list.bind("<MouseWheel>")
+    assert all(b.bind("<MouseWheel>") for b in view.selection_bubble_list.bubble_widgets)
 
     view._clear_queue()
     tk_root.update()

@@ -7,7 +7,7 @@
     "sub_type": "RAM / Storage Upgrade",
     "corp": "Enterprise-HQ",
     "resolve": "已協助使用者完成記憶體擴充。",
-    "_ui_group": "電腦相關"
+    "_ui_group": "設備相關"
   },
   {
     "category": "Incident Request",
@@ -17,7 +17,7 @@
     "sub_type": "VPN Client Access",
     "corp": "Enterprise-HQ",
     "resolve": "已清除過期快取、重新匯入憑證並驗證遠端連線正常。",
-    "_ui_group": "電腦相關"
+    "_ui_group": "設備相關"
   },
   {
     "category": "Routine Task",
